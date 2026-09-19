@@ -775,9 +775,13 @@
 
     <fieldset>
       <legend>Save vault to a file</legend>
-      <div class="field">
+      <div class="field" id="vault-save-passphrase-field">
         <label for="vault-save-passphrase">Master passphrase</label>
         <input type="password" id="vault-save-passphrase" autocomplete="off">
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="vault-save-webauthn-toggle">
+        <label class="ck-text" for="vault-save-webauthn-toggle">Protect with a security key instead <span class="desc">e.g. a YubiKey &mdash; touch it instead of typing a passphrase; only works on the hosted (HTTPS) version of this page</span></label>
       </div>
       <div class="btn-row">
         <button type="button" class="btn" id="vault-save-btn">Download vault file</button>
@@ -793,11 +797,12 @@
         <input type="file" id="vault-file-input" accept=".txt,.spgvault,text/plain">
       </div>
       <div class="field">
-        <label for="vault-open-passphrase">Master passphrase</label>
+        <label for="vault-open-passphrase">Master passphrase <span class="desc">only needed if the file is passphrase-protected</span></label>
         <input type="password" id="vault-open-passphrase" autocomplete="off">
       </div>
       <div class="btn-row">
-        <button type="button" class="btn" id="vault-open-btn">Open vault file</button>
+        <button type="button" class="btn" id="vault-open-btn">Open with passphrase</button>
+        <button type="button" class="btn" id="vault-open-webauthn-btn">Open with security key</button>
       </div>
       <p class="inline-hint" id="vault-open-status"></p>
     </fieldset>
@@ -819,7 +824,7 @@
       <li>Avoid pasting important passwords into unfamiliar "password strength checker" websites &mdash; you can't verify what they do with the data.</li>
       <li>A QR code of a password is the password: anyone who can scan, screenshot, or photograph it can read it. Use the "QR code" option only on a private screen to move a password to your own other device, and close it once you're done.</li>
       <li>For extra protection when transferring a password &mdash; over a photo, a synced clipboard, or an exported file &mdash; encrypt it with a passphrase first. Communicate that passphrase a different way than the code or file itself (say it aloud, don't attach it to the same message), and never write the two down together.</li>
-      <li>The key vault's master passphrase is the only thing standing between the downloaded file and every password in it, indefinitely &mdash; a weak one can eventually be guessed offline. Use a long, random passphrase (a generated passphrase from this tool is a good choice) and don't reuse it as an account password anywhere.</li>
+      <li>The key vault's master passphrase (or security key) is the only thing standing between the downloaded file and every password in it, indefinitely. A weak passphrase can eventually be guessed offline &mdash; use a long, random one (a generated passphrase from this tool is a good choice) and don't reuse it as an account password anywhere. A security-key-protected vault has no such guessing risk, but can only ever be opened with that exact physical key &mdash; losing it means losing the vault.</li>
       <li>A physical security key (e.g. a YubiKey) can replace a typed passphrase for QR/export protection: touch the key instead of remembering a secret. This only works on the hosted (HTTPS) version of this page, and decrypting requires the exact same physical key &mdash; if you lose it, a value protected this way cannot be recovered.</li>
     </ol>
   </section>
@@ -2539,22 +2544,15 @@ class VaultManager {
   static get FILE_TYPE() { return 'spg-vault-v1'; }
 
   // entries: [{ id, label, value, mode, createdAt }]
-  static async serialize(entries, passphrase) {
-    const payload = JSON.stringify({
+  static buildPayload(entries) {
+    return JSON.stringify({
       type: VaultManager.FILE_TYPE,
       exportedAt: new Date().toISOString(),
       entries: entries.map(e => ({ label: e.label, value: e.value, mode: e.mode, createdAt: e.createdAt }))
     });
-    return TransferCrypto.encrypt(payload, passphrase);
   }
 
-  static async deserialize(fileText, passphrase) {
-    let plaintext;
-    try {
-      plaintext = await TransferCrypto.decrypt(fileText, passphrase);
-    } catch (e) {
-      throw new Error(e.message || 'Could not decrypt this vault file.');
-    }
+  static parsePayload(plaintext) {
     let parsed;
     try {
       parsed = JSON.parse(plaintext);
@@ -2570,6 +2568,42 @@ class VaultManager {
       mode: e.mode === 'passphrase' ? 'passphrase' : 'random',
       createdAt: typeof e.createdAt === 'string' ? e.createdAt : new Date().toISOString()
     }));
+  }
+
+  static async serialize(entries, passphrase) {
+    return TransferCrypto.encrypt(VaultManager.buildPayload(entries), passphrase);
+  }
+
+  static async serializeWithSecurityKey(entries, credentialId) {
+    return WebAuthnCrypto.encrypt(VaultManager.buildPayload(entries), credentialId);
+  }
+
+  static async deserialize(fileText, passphrase) {
+    const trimmed = (fileText || '').trim();
+    if (trimmed.startsWith(WebAuthnCrypto.MAGIC_PREFIX)) {
+      throw new Error('This vault file is security-key-protected — use "Open with security key" instead.');
+    }
+    let plaintext;
+    try {
+      plaintext = await TransferCrypto.decrypt(fileText, passphrase);
+    } catch (e) {
+      throw new Error(e.message || 'Could not decrypt this vault file.');
+    }
+    return VaultManager.parsePayload(plaintext);
+  }
+
+  static async deserializeWithSecurityKey(fileText) {
+    const trimmed = (fileText || '').trim();
+    if (trimmed.startsWith(TransferCrypto.MAGIC_PREFIX)) {
+      throw new Error('This vault file is passphrase-protected — use "Open with passphrase" instead.');
+    }
+    let plaintext;
+    try {
+      plaintext = await WebAuthnCrypto.decrypt(fileText);
+    } catch (e) {
+      throw new Error(e.message || 'Could not decrypt this vault file.');
+    }
+    return VaultManager.parsePayload(plaintext);
   }
 }
 
@@ -2733,8 +2767,11 @@ class UIController {
       this.$('qr-webauthn-toggle').disabled = true;
       this.$('export-webauthn-toggle').disabled = true;
       this.$('decrypt-webauthn-btn').disabled = true;
+      this.$('vault-save-webauthn-toggle').disabled = true;
+      this.$('vault-open-webauthn-btn').disabled = true;
       this.$('qr-webauthn-toggle').nextElementSibling.querySelector('.desc').textContent = 'unavailable here: ' + reason;
       this.$('export-webauthn-toggle').nextElementSibling.querySelector('.desc').textContent = 'unavailable here: ' + reason;
+      this.$('vault-save-webauthn-toggle').nextElementSibling.querySelector('.desc').textContent = 'unavailable here: ' + reason;
     }
   }
 
@@ -2885,6 +2922,8 @@ class UIController {
       this.$('vault-file-input').value = '';
       this.webauthnCredentialId = null;
       this.$('export-webauthn-toggle').checked = false;
+      this.$('vault-save-webauthn-toggle').checked = false;
+      this.$('vault-save-passphrase-field').hidden = false;
     };
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) clear();
@@ -3758,8 +3797,17 @@ class UIController {
       this.renderVaultList();
       this.announce('Vault cleared.');
     });
+
+    const webauthnToggle = this.$('vault-save-webauthn-toggle');
+    const passphraseField = this.$('vault-save-passphrase-field');
+    webauthnToggle.addEventListener('change', () => {
+      passphraseField.hidden = webauthnToggle.checked;
+      if (webauthnToggle.checked) this.$('vault-save-passphrase').value = '';
+    });
+
     this.$('vault-save-btn').addEventListener('click', () => this.handleSaveVaultFile());
     this.$('vault-open-btn').addEventListener('click', () => this.handleOpenVaultFile());
+    this.$('vault-open-webauthn-btn').addEventListener('click', () => this.handleOpenVaultFileWithSecurityKey());
   }
 
   addToVault(entry) {
@@ -3850,10 +3898,28 @@ class UIController {
   async handleSaveVaultFile() {
     const status = this.$('vault-save-status');
     const passphraseInput = this.$('vault-save-passphrase');
+    const webauthnToggle = this.$('vault-save-webauthn-toggle');
     if (this.vaultEntries.length === 0) {
       status.textContent = 'The vault is empty — nothing to save.';
       return;
     }
+
+    if (webauthnToggle.checked) {
+      try {
+        if (!this.webauthnCredentialId) {
+          status.textContent = 'Registering your security key — touch it now…';
+          this.webauthnCredentialId = await WebAuthnCrypto.registerKey('vault-key');
+        }
+        status.textContent = 'Touch your security key again to encrypt the vault…';
+        const blob = await VaultManager.serializeWithSecurityKey(this.vaultEntries, this.webauthnCredentialId);
+        ExportManager.download('password-vault.txt', blob, 'text/plain');
+        status.textContent = 'Vault file downloaded (' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + '). Opening it later needs this same physical security key.';
+      } catch (e) {
+        status.textContent = e.message || 'Could not save the vault file with a security key.';
+      }
+      return;
+    }
+
     if (!TransferCrypto.isAvailable()) {
       status.textContent = 'Saving a vault file needs a browser feature (Web Crypto) that isn’t available here.';
       return;
@@ -3873,6 +3939,20 @@ class UIController {
     } finally {
       passphraseInput.value = '';
     }
+  }
+
+  applyOpenedVaultEntries(entries) {
+    for (const e of this.vaultEntries) e.value = '';
+    this.vaultEntries = entries.map(e => ({
+      id: this.vaultNextId++,
+      label: e.label,
+      value: e.value,
+      mode: e.mode,
+      createdAt: e.createdAt,
+      hidden: true
+    }));
+    this.renderVaultList();
+    this.announce('Vault file opened.');
   }
 
   async handleOpenVaultFile() {
@@ -3897,22 +3977,37 @@ class UIController {
     try {
       const text = await file.text();
       const entries = await VaultManager.deserialize(text, passphrase);
-      for (const e of this.vaultEntries) e.value = '';
-      this.vaultEntries = entries.map(e => ({
-        id: this.vaultNextId++,
-        label: e.label,
-        value: e.value,
-        mode: e.mode,
-        createdAt: e.createdAt,
-        hidden: true
-      }));
-      this.renderVaultList();
+      this.applyOpenedVaultEntries(entries);
       status.textContent = 'Vault opened: ' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + ' loaded.';
-      this.announce('Vault file opened.');
     } catch (e) {
       status.textContent = e.message || 'Could not open this vault file.';
     } finally {
       passphraseInput.value = '';
+      fileInput.value = '';
+    }
+  }
+
+  async handleOpenVaultFileWithSecurityKey() {
+    const status = this.$('vault-open-status');
+    const fileInput = this.$('vault-file-input');
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      status.textContent = 'Choose a vault file first.';
+      return;
+    }
+    if (!WebAuthnCrypto.isPlatformAvailable() || !WebAuthnCrypto.isLikelyUsableOrigin()) {
+      status.textContent = 'Security-key decryption needs this page to be served over HTTPS or localhost, and a WebAuthn-capable browser.';
+      return;
+    }
+    status.textContent = 'Reading the file — touch your security key when prompted…';
+    try {
+      const text = await file.text();
+      const entries = await VaultManager.deserializeWithSecurityKey(text);
+      this.applyOpenedVaultEntries(entries);
+      status.textContent = 'Vault opened: ' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + ' loaded.';
+    } catch (e) {
+      status.textContent = e.message || 'Could not open this vault file with a security key.';
+    } finally {
       fileInput.value = '';
     }
   }
@@ -4238,6 +4333,47 @@ class SelfTestRunner {
           detail: 'Requires touching a physical security key; not run automatically. Use the QR or export dialog to test this for real.'
         });
       }
+
+      await add('Key vault round-trips correctly with a security key (synthetic secret)', async () => {
+        const entries = [{ label: 'Test D', value: 'zP9!qR2wL8xM3v', mode: 'random', createdAt: new Date().toISOString() }];
+        const credentialId = window.crypto.getRandomValues(new Uint8Array(16));
+        const secret = window.crypto.getRandomValues(new Uint8Array(32));
+        const salt = window.crypto.getRandomValues(new Uint8Array(WebAuthnCrypto.SALT_BYTES));
+        const payload = VaultManager.buildPayload(entries);
+        const blob = await WebAuthnCrypto.encryptWithSecret(payload, secret, credentialId, salt);
+        const parsedBlob = WebAuthnCrypto.parseBlob(blob);
+        const plaintext = await WebAuthnCrypto.decryptWithSecret(parsedBlob, secret);
+        const recovered = VaultManager.parsePayload(plaintext);
+        if (recovered.length !== 1 || recovered[0].value !== entries[0].value || recovered[0].label !== entries[0].label) {
+          throw new Error('Vault entry did not round-trip through the security-key path.');
+        }
+        return 'ok';
+      });
+
+      await add('Key vault rejects opening a file with the wrong method', async () => {
+        const entries = [{ label: 'X', value: 'y', mode: 'random', createdAt: new Date().toISOString() }];
+        const passphraseBlob = await VaultManager.serialize(entries, 'some-passphrase');
+        let threwOnKeyOpen = false;
+        try {
+          await VaultManager.deserializeWithSecurityKey(passphraseBlob);
+        } catch (e) {
+          threwOnKeyOpen = true;
+        }
+        if (!threwOnKeyOpen) throw new Error('Opening a passphrase-protected vault via "security key" did not fail.');
+
+        const credentialId = window.crypto.getRandomValues(new Uint8Array(16));
+        const secret = window.crypto.getRandomValues(new Uint8Array(32));
+        const salt = window.crypto.getRandomValues(new Uint8Array(WebAuthnCrypto.SALT_BYTES));
+        const keyBlob = await WebAuthnCrypto.encryptWithSecret(VaultManager.buildPayload(entries), secret, credentialId, salt);
+        let threwOnPassphraseOpen = false;
+        try {
+          await VaultManager.deserialize(keyBlob, 'some-passphrase');
+        } catch (e) {
+          threwOnPassphraseOpen = true;
+        }
+        if (!threwOnPassphraseOpen) throw new Error('Opening a security-key-protected vault via "passphrase" did not fail.');
+        return 'ok (both mismatches correctly rejected)';
+      });
     }
 
     return results;
