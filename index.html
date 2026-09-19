@@ -845,6 +845,15 @@
     <p class="subtle">Save passwords here using each result's "Save to vault" button, then download the vault as one encrypted file to keep or carry to another device. The vault lives only in this tab's memory and in whatever file you explicitly download &mdash; nothing here is ever written to this browser's storage automatically, and like the rest of this page, it's cleared if you switch away from or close this tab. Download it before you navigate away.</p>
     <div class="alert warn">Whoever has the vault file <em>and</em> a way to unlock it (its passphrase, or the security key that protected it) can read everything in it. Pick a strong, memorable passphrase (a generated passphrase from this tool works well) and keep it separate from the file itself. If you protect a vault with only one method and lose it &mdash; forget the passphrase, or lose the security key &mdash; there is no way to recover the vault. Protecting it with both gives you a second way in if you lose one of them.</div>
 
+    <div class="checkbox-row">
+      <input type="checkbox" id="vault-idle-lock-toggle">
+      <label class="ck-text" for="vault-idle-lock-toggle">Auto-lock the vault after inactivity <span class="desc">clears it from memory if this tab sits idle for the chosen number of minutes, even while it stays open and visible &mdash; download it first if you need to keep it</span></label>
+    </div>
+    <div class="field">
+      <label for="vault-idle-lock-minutes">Idle lock delay (minutes)</label>
+      <input type="number" id="vault-idle-lock-minutes" min="1" max="120" value="5" disabled>
+    </div>
+
     <p class="subtle" id="vault-empty">The vault is empty. Generate a password above and use its "Save to vault" button.</p>
     <div id="vault-list"></div>
     <div class="btn-row" id="vault-toolbar" hidden>
@@ -1884,6 +1893,17 @@ class ClipboardAutoClearTracker {
 
   isCurrent(token) {
     return token === this.token;
+  }
+}
+
+/* =========================================================================
+ * IdleLockChecker — pure elapsed-time check for the vault's idle auto-lock,
+ * kept separate from the setInterval polling loop so it can be tested
+ * without waiting on real timers.
+ * ========================================================================= */
+class IdleLockChecker {
+  static isIdle(lastActivityAt, minutes, now) {
+    return (now - lastActivityAt) >= minutes * 60 * 1000;
   }
 }
 
@@ -3725,6 +3745,8 @@ class UIController {
     this.phoneticSpeechTimeout = null;
     this.clipboardAutoClear = { enabled: false, seconds: 30 };
     this.clipboardClearTracker = new ClipboardAutoClearTracker();
+    this.vaultIdleLock = { enabled: false, minutes: 5 };
+    this.lastVaultActivityAt = Date.now();
   }
 
   init() {
@@ -3752,6 +3774,7 @@ class UIController {
     this.bindWifiQr();
     this.bindPhoneticDialog();
     this.bindClipboardAutoClear();
+    this.bindVaultIdleLock();
     this.bindLifecycleClearing();
     this.bindBeforeUnloadWarning();
   }
@@ -5070,6 +5093,44 @@ class UIController {
 
   /* ---------------- Key vault ---------------- */
 
+  bindVaultIdleLock() {
+    const toggle = this.$('vault-idle-lock-toggle');
+    const minutesInput = this.$('vault-idle-lock-minutes');
+    const update = () => {
+      this.vaultIdleLock.enabled = toggle.checked;
+      minutesInput.disabled = !toggle.checked;
+      this.lastVaultActivityAt = Date.now();
+    };
+    toggle.addEventListener('change', update);
+    minutesInput.addEventListener('input', () => {
+      const v = parseInt(minutesInput.value, 10);
+      if (!Number.isNaN(v) && v >= 1 && v <= 120) this.vaultIdleLock.minutes = v;
+    });
+    update();
+
+    const markActivity = () => { this.lastVaultActivityAt = Date.now(); };
+    for (const evt of ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']) {
+      document.addEventListener(evt, markActivity, { passive: true });
+    }
+
+    window.setInterval(() => {
+      if (!this.vaultIdleLock.enabled || this.vaultEntries.length === 0) return;
+      if (IdleLockChecker.isIdle(this.lastVaultActivityAt, this.vaultIdleLock.minutes, Date.now())) {
+        this.lockVaultDueToInactivity();
+      }
+    }, 5000);
+  }
+
+  lockVaultDueToInactivity() {
+    for (const e of this.vaultEntries) e.value = '';
+    this.vaultEntries = [];
+    this.renderVaultList();
+    const minutes = this.vaultIdleLock.minutes;
+    const message = 'Vault cleared automatically after ' + minutes + ' minute' + (minutes === 1 ? '' : 's') + ' of inactivity.';
+    this.$('vault-open-status').textContent = message;
+    this.announce(message);
+  }
+
   bindVault() {
     this.$('vault-clear-btn').addEventListener('click', () => {
       for (const e of this.vaultEntries) e.value = '';
@@ -5854,6 +5915,22 @@ class SelfTestRunner {
       const second = tracker.begin();
       if (tracker.isCurrent(first)) throw new Error('An earlier token should be superseded once a newer copy begins.');
       if (!tracker.isCurrent(second)) throw new Error('The latest token should be current.');
+      return 'ok';
+    });
+
+    await add('Vault idle-lock check trips exactly at the configured delay', () => {
+      const start = 1_000_000;
+      const minutes = 5;
+      const thresholdMs = minutes * 60 * 1000;
+      if (IdleLockChecker.isIdle(start, minutes, start + thresholdMs - 1)) {
+        throw new Error('Should not be idle one millisecond before the threshold.');
+      }
+      if (!IdleLockChecker.isIdle(start, minutes, start + thresholdMs)) {
+        throw new Error('Should be idle exactly at the threshold.');
+      }
+      if (!IdleLockChecker.isIdle(start, minutes, start + thresholdMs + 60000)) {
+        throw new Error('Should still be idle well past the threshold.');
+      }
       return 'ok';
     });
 
