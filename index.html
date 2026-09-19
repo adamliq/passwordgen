@@ -277,6 +277,23 @@
     min-width: 140px; flex: 0 1 180px;
   }
 
+  .phonetic-list {
+    max-height: 320px; overflow-y: auto; border: 1px solid var(--border);
+    border-radius: 8px; margin-top: 10px;
+  }
+  .phonetic-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); font-size: 0.95rem;
+  }
+  .phonetic-row:last-child { border-bottom: none; }
+  .phonetic-row.speaking { background: var(--accent-soft); }
+  .phonetic-index { color: var(--text-muted); font-size: 0.8rem; min-width: 26px; }
+  .phonetic-char {
+    font-family: var(--mono); font-weight: 700; min-width: 28px; text-align: center;
+    background: var(--bg-inset); border-radius: 6px; padding: 2px 6px;
+  }
+  .phonetic-word { font-weight: 600; }
+
   .visually-hide-value { letter-spacing: 2px; }
   .copy-live { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); }
 
@@ -666,6 +683,20 @@
     </div>
   </dialog>
 
+  <dialog id="phonetic-dialog" aria-labelledby="phonetic-dialog-title">
+    <h2 id="phonetic-dialog-title">Phonetic spelling</h2>
+    <div class="alert warn">Reading this aloud is the same as saying the password itself &mdash; use it only on a live call with someone you trust, not in a voicemail, recording, or written message. Don't paste or text this list; that carries the same risk as sending the password in plain text.</div>
+    <div id="phonetic-list" class="phonetic-list"></div>
+    <div class="btn-row">
+      <button type="button" class="btn" id="phonetic-speak-btn">&#x1F50A; Speak</button>
+      <button type="button" class="btn" id="phonetic-stop-btn" hidden>Stop</button>
+    </div>
+    <p class="inline-hint" id="phonetic-speech-status"></p>
+    <div class="btn-row">
+      <button type="button" class="btn primary" id="phonetic-dialog-close-btn">Done</button>
+    </div>
+  </dialog>
+
   <!-- STRENGTH DETAIL (most recently generated / focused item) -->
   <section class="card" id="strength-section" hidden>
     <h2>Strength &amp; entropy detail</h2>
@@ -863,6 +894,7 @@
       <li>Avoid pasting important passwords into unfamiliar "password strength checker" websites &mdash; you can't verify what they do with the data.</li>
       <li>A QR code of a password is the password: anyone who can scan, screenshot, or photograph it can read it. Use the "QR code" option only on a private screen to move a password to your own other device, and close it once you're done.</li>
       <li>A Wi-Fi QR code lets any device that scans it join the network immediately, with no password prompt at all &mdash; treat it exactly like posting the password itself. Show it only to people and devices you want on your network, and take it down (or stop displaying it) afterward.</li>
+      <li>The "Spell it out" phonetic view is meant for reading aloud on a live call, not for writing down, pasting, or texting &mdash; sending that list electronically carries exactly the same risk as sending the password itself.</li>
       <li>For extra protection when transferring a password &mdash; over a photo, a synced clipboard, or an exported file &mdash; encrypt it with a passphrase first. Communicate that passphrase a different way than the code or file itself (say it aloud, don't attach it to the same message), and never write the two down together.</li>
       <li>The key vault's master passphrase (or security key) is the only thing standing between the downloaded file and every password in it, indefinitely. A weak passphrase can eventually be guessed offline &mdash; use a long, random one (a generated passphrase from this tool is a good choice) and don't reuse it as an account password anywhere. A security-key-protected vault has no such guessing risk, but can only ever be opened with that exact physical key &mdash; losing it means losing the vault.</li>
       <li>A physical security key (e.g. a YubiKey) can replace a typed passphrase for QR/export protection: touch the key instead of remembering a secret. This only works on the hosted (HTTPS) version of this page, and decrypting requires the exact same physical key &mdash; if you lose it, a value protected this way cannot be recovered.</li>
@@ -887,6 +919,7 @@
         <li>Passphrase protection (for a QR code, an export, or the key vault) uses only the browser's built-in Web Crypto API: PBKDF2 (SHA-256, 600,000 iterations) derives an AES-256 key from your passphrase, and AES-GCM encrypts the value with a random salt and IV. This is not custom cryptographic code &mdash; it calls the browser's own, independently-audited implementation. The passphrase is used only in memory for that one operation and is never stored, logged, or transmitted.</li>
         <li>The key vault's entries live only in this tab's memory and in whatever encrypted file you explicitly download &mdash; there is no automatic save to <code>localStorage</code>, <code>IndexedDB</code>, or any server, and the in-memory list is cleared on the same hide/close/unload triggers as every other sensitive value on this page.</li>
         <li>Security-key protection uses the browser's WebAuthn API and its "prf" extension: touching a registered physical key with a given random salt deterministically returns a secret, used directly as an AES-GCM key. The secret never leaves the hardware and is never visible to this page's JavaScript, only the result of that one derivation. Browsers refuse WebAuthn entirely on pages opened as a local file (a <code>SecurityError</code>, confirmed in testing) &mdash; this feature only works when the page is served over HTTPS or from localhost, and needs an authenticator and browser that both support the "prf" extension, which is detected and reported explicitly rather than assumed.</li>
+        <li>The optional "Speak" button under "Spell it out" uses the browser's built-in <code>speechSynthesis</code> API, which runs locally through the operating system's own text-to-speech engine on every browser tested; this page makes no network request to produce speech. Voice availability and quality vary by device and operating system, and a device with no voices installed will fall back to the on-screen text after a few seconds.</li>
       </ul>
       <div class="btn-row">
         <button type="button" class="btn" id="verify-assumptions-btn">Show design assumptions</button>
@@ -1347,6 +1380,14 @@ class PasswordGenerator {
       // Enforce first/last character rules with in-place swaps.
       if (!PasswordGenerator.enforceEdgeRulesTyped(codes, options)) return null;
 
+      // The edge-rule swap above can reintroduce an adjacent repeat at the
+      // swap site (and, in principle, the reverse). Rather than silently
+      // returning a value that quietly breaks one of the two constraints,
+      // verify both hold together and reject this candidate if not — the
+      // caller (generate()) simply tries a fresh one.
+      if (options.avoidAdjacentRepeats && PasswordGenerator.hasAdjacentRepeatTyped(codes)) return null;
+      if (!PasswordGenerator.edgeRulesSatisfiedTyped(codes, options)) return null;
+
       let value = '';
       for (let i = 0; i < codes.length; i++) value += String.fromCharCode(codes[i]);
       return value;
@@ -1358,6 +1399,23 @@ class PasswordGenerator {
       usedCodes.clear();
       counts.clear();
     }
+  }
+
+  static hasAdjacentRepeatTyped(a) {
+    for (let i = 1; i < a.length; i++) if (a[i] === a[i - 1]) return true;
+    return false;
+  }
+
+  static edgeRulesSatisfiedTyped(a, options) {
+    const n = a.length;
+    const isLetterCode = (code) => PasswordGenerator.isLetter(String.fromCharCode(code));
+    const isAlphanumericCode = (code) => PasswordGenerator.isAlphanumeric(String.fromCharCode(code));
+    const isSymbolCode = (code) => PasswordGenerator.isSymbol(String.fromCharCode(code));
+    if (options.firstLetter && !isLetterCode(a[0])) return false;
+    if (options.firstNotSymbol && isSymbolCode(a[0])) return false;
+    if (options.lastAlphanumeric && !isAlphanumericCode(a[n - 1])) return false;
+    if (options.lastNotSymbol && isSymbolCode(a[n - 1])) return false;
+    return true;
   }
 
   static fixAdjacentRepeatsTyped(a) {
@@ -1695,6 +1753,66 @@ class DisplayFormatter {
       parts.push(text.slice(i, i + DisplayFormatter.GROUP_SIZE));
     }
     return parts.join(' ');
+  }
+}
+
+/* =========================================================================
+ * PhoneticSpeller — spells a value using the NATO/ICAO phonetic alphabet
+ * and standard aviation digit words, so it can be read aloud accurately
+ * over a phone call without the letter/digit ambiguity ("B" vs "D" vs "V",
+ * "5" vs "9") that plain reading invites. Case is always stated explicitly
+ * ("Capital Alpha" vs "lowercase alpha") since spoken words carry no case.
+ * Purely a display helper: it only describes a value already shown on
+ * screen, and never changes or stores it.
+ * ========================================================================= */
+class PhoneticSpeller {
+  static get LETTER_WORDS() {
+    return {
+      A: 'Alpha', B: 'Bravo', C: 'Charlie', D: 'Delta', E: 'Echo', F: 'Foxtrot',
+      G: 'Golf', H: 'Hotel', I: 'India', J: 'Juliett', K: 'Kilo', L: 'Lima',
+      M: 'Mike', N: 'November', O: 'Oscar', P: 'Papa', Q: 'Quebec', R: 'Romeo',
+      S: 'Sierra', T: 'Tango', U: 'Uniform', V: 'Victor', W: 'Whiskey',
+      X: 'X-ray', Y: 'Yankee', Z: 'Zulu'
+    };
+  }
+
+  static get DIGIT_WORDS() {
+    // Standard ICAO/aviation digit words, chosen for voice clarity
+    // (e.g. "Niner" instead of "Nine", to avoid confusion with "nein").
+    return {
+      '0': 'Zero', '1': 'One', '2': 'Two', '3': 'Three', '4': 'Four',
+      '5': 'Five', '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Niner'
+    };
+  }
+
+  static get SYMBOL_WORDS() {
+    return {
+      ' ': 'space', '!': 'exclamation mark', '@': 'at sign', '#': 'hash',
+      '$': 'dollar sign', '%': 'percent sign', '^': 'caret', '&': 'ampersand',
+      '*': 'asterisk', '(': 'open parenthesis', ')': 'close parenthesis',
+      '-': 'hyphen', '_': 'underscore', '=': 'equals sign', '+': 'plus sign',
+      '[': 'open bracket', ']': 'close bracket', '{': 'open brace', '}': 'close brace',
+      ';': 'semicolon', ':': 'colon', ',': 'comma', '.': 'period', '?': 'question mark',
+      '/': 'slash', '~': 'tilde', '`': 'backtick', '|': 'pipe', '\\': 'backslash',
+      '<': 'less than', '>': 'greater than', '\'': 'apostrophe', '"': 'quotation mark'
+    };
+  }
+
+  static isSpeechAvailable() {
+    return typeof window !== 'undefined' && !!window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function';
+  }
+
+  static describeChar(ch) {
+    if (/[A-Z]/.test(ch)) return 'Capital ' + PhoneticSpeller.LETTER_WORDS[ch];
+    if (/[a-z]/.test(ch)) return 'lowercase ' + PhoneticSpeller.LETTER_WORDS[ch.toUpperCase()].toLowerCase();
+    if (/[0-9]/.test(ch)) return PhoneticSpeller.DIGIT_WORDS[ch];
+    if (Object.prototype.hasOwnProperty.call(PhoneticSpeller.SYMBOL_WORDS, ch)) return PhoneticSpeller.SYMBOL_WORDS[ch];
+    return 'unknown character (U+' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + ')';
+  }
+
+  // Returns [{ index, char, description }] for each character of text, in order.
+  static spell(text) {
+    return text.split('').map((ch, i) => ({ index: i + 1, char: ch, description: PhoneticSpeller.describeChar(ch) }));
   }
 }
 
@@ -3417,6 +3535,8 @@ class UIController {
     this.vaultNextId = 1;
     this.webauthnCredentialId = null; // cached for this tab/session only; not a secret
     this.chunkedDisplay = false; // display-only grouping; never affects the underlying value
+    this.phoneticValue = '';
+    this.phoneticSpeechTimeout = null;
   }
 
   init() {
@@ -3442,6 +3562,7 @@ class UIController {
     this.checkCryptoAvailability();
     this.bindQrDialog();
     this.bindWifiQr();
+    this.bindPhoneticDialog();
     this.bindLifecycleClearing();
   }
 
@@ -3689,6 +3810,116 @@ class UIController {
     this.showWifiQrCode(wifiString);
   }
 
+  /* ---------------- Phonetic read-aloud ---------------- */
+
+  bindPhoneticDialog() {
+    const dialog = this.$('phonetic-dialog');
+    this.$('phonetic-dialog-close-btn').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => this.clearPhoneticDialog());
+    dialog.addEventListener('cancel', () => this.clearPhoneticDialog());
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) dialog.close();
+    });
+
+    if (!PhoneticSpeller.isSpeechAvailable()) {
+      this.$('phonetic-speak-btn').disabled = true;
+    }
+
+    this.$('phonetic-speak-btn').addEventListener('click', () => this.handleSpeakPhonetic());
+    this.$('phonetic-stop-btn').addEventListener('click', () => this.handleStopPhonetic());
+  }
+
+  showPhoneticSpelling(value) {
+    this.phoneticValue = value;
+    const list = this.$('phonetic-list');
+    list.replaceChildren();
+
+    for (const entry of PhoneticSpeller.spell(value)) {
+      const row = document.createElement('div');
+      row.className = 'phonetic-row';
+
+      const idxEl = document.createElement('span');
+      idxEl.className = 'phonetic-index';
+      idxEl.textContent = '#' + entry.index;
+
+      const charEl = document.createElement('span');
+      charEl.className = 'phonetic-char';
+      charEl.textContent = entry.char === ' ' ? '␣' : entry.char;
+
+      const wordEl = document.createElement('span');
+      wordEl.className = 'phonetic-word';
+      wordEl.textContent = entry.description;
+
+      row.append(idxEl, charEl, wordEl);
+      list.append(row);
+    }
+
+    this.$('phonetic-speech-status').textContent = PhoneticSpeller.isSpeechAvailable()
+      ? ''
+      : 'Reading aloud automatically needs a browser feature (speech synthesis) that isn’t available here — read the list on screen instead.';
+    this.$('phonetic-dialog').showModal();
+  }
+
+  clearPhoneticDialog() {
+    this.handleStopPhonetic();
+    this.$('phonetic-list').replaceChildren();
+    this.phoneticValue = '';
+  }
+
+  handleSpeakPhonetic() {
+    if (!PhoneticSpeller.isSpeechAvailable() || !this.phoneticValue) return;
+    window.speechSynthesis.cancel();
+    if (this.phoneticSpeechTimeout) { window.clearTimeout(this.phoneticSpeechTimeout); this.phoneticSpeechTimeout = null; }
+
+    const entries = PhoneticSpeller.spell(this.phoneticValue);
+    const rows = this.$('phonetic-list').children;
+    this.$('phonetic-speak-btn').hidden = true;
+    this.$('phonetic-stop-btn').hidden = false;
+    this.$('phonetic-speech-status').textContent = 'Speaking…';
+
+    const finish = (statusText) => {
+      if (this.phoneticSpeechTimeout) { window.clearTimeout(this.phoneticSpeechTimeout); this.phoneticSpeechTimeout = null; }
+      for (const r of rows) r.classList.remove('speaking');
+      this.$('phonetic-speak-btn').hidden = false;
+      this.$('phonetic-stop-btn').hidden = true;
+      this.$('phonetic-speech-status').textContent = statusText;
+    };
+
+    entries.forEach((entry, i) => {
+      const utterance = new SpeechSynthesisUtterance(entry.description);
+      utterance.rate = 0.85;
+      utterance.onstart = () => {
+        for (const r of rows) r.classList.remove('speaking');
+        if (rows[i]) { rows[i].classList.add('speaking'); rows[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+      };
+      if (i === entries.length - 1) {
+        utterance.onend = () => finish('Done.');
+        utterance.onerror = () => finish('Done.');
+      }
+      window.speechSynthesis.speak(utterance);
+    });
+
+    // Safety net: some browsers/platforms report speech synthesis as
+    // available but have no voices installed, so onstart/onend never fire
+    // and the dialog would otherwise be stuck showing "Speaking..."
+    // forever. Fall back to resetting after a generous estimate.
+    const estimatedMs = entries.length * 900 + 2500;
+    this.phoneticSpeechTimeout = window.setTimeout(() => finish('Done.'), estimatedMs);
+  }
+
+  handleStopPhonetic() {
+    if (this.phoneticSpeechTimeout) { window.clearTimeout(this.phoneticSpeechTimeout); this.phoneticSpeechTimeout = null; }
+    if (PhoneticSpeller.isSpeechAvailable()) window.speechSynthesis.cancel();
+    const list = this.$('phonetic-list');
+    if (list) for (const r of list.children) r.classList.remove('speaking');
+    const speakBtn = this.$('phonetic-speak-btn');
+    const stopBtn = this.$('phonetic-stop-btn');
+    if (speakBtn) speakBtn.hidden = false;
+    if (stopBtn) stopBtn.hidden = true;
+    const status = this.$('phonetic-speech-status');
+    if (status && status.textContent === 'Speaking…') status.textContent = '';
+  }
+
   bindLifecycleClearing() {
     const clear = () => {
       // Best-effort clearing of currently displayed sensitive values.
@@ -3714,6 +3945,9 @@ class UIController {
       this.$('vault-save-passphrase-field').hidden = false;
       this.$('wifi-password').value = '';
       this.showWifiErrors([]);
+      const phoneticDialog = this.$('phonetic-dialog');
+      if (phoneticDialog.open) phoneticDialog.close();
+      this.clearPhoneticDialog();
     };
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) clear();
@@ -4217,6 +4451,13 @@ class UIController {
     vaultBtn.setAttribute('aria-label', 'Save password ' + (index + 1) + ' to the key vault');
     vaultBtn.addEventListener('click', () => this.addToVault(entry));
 
+    const phoneticBtn = document.createElement('button');
+    phoneticBtn.type = 'button';
+    phoneticBtn.className = 'btn small';
+    phoneticBtn.textContent = 'Spell it out';
+    phoneticBtn.setAttribute('aria-label', 'Show password ' + (index + 1) + ' as a phonetic spelling, to read aloud over a call');
+    phoneticBtn.addEventListener('click', () => this.showPhoneticSpelling(entry.value));
+
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.className = 'btn small danger';
@@ -4228,7 +4469,7 @@ class UIController {
       this.renderResults();
     });
 
-    actions.append(showHideBtn, copyBtn, regenBtn, qrBtn, vaultBtn, detailBtn, removeBtn);
+    actions.append(showHideBtn, copyBtn, regenBtn, qrBtn, vaultBtn, phoneticBtn, detailBtn, removeBtn);
     row.append(idxEl, valueEl, badge, actions);
     return row;
   }
@@ -4971,6 +5212,28 @@ class SelfTestRunner {
       if (grouped !== 'k7mQ 2xR9 vL4n P1w') throw new Error('Unexpected grouping: "' + grouped + '"');
       if (grouped.replace(/ /g, '') !== value) throw new Error('Grouping lost or altered characters.');
       if (DisplayFormatter.group('') !== '') throw new Error('Grouping an empty string should return an empty string.');
+      return 'ok';
+    });
+
+    await add('Phonetic spelling states case explicitly and covers digits/symbols', () => {
+      if (PhoneticSpeller.describeChar('A') !== 'Capital Alpha') throw new Error('Uppercase A: got "' + PhoneticSpeller.describeChar('A') + '"');
+      if (PhoneticSpeller.describeChar('a') !== 'lowercase alpha') throw new Error('Lowercase a: got "' + PhoneticSpeller.describeChar('a') + '"');
+      if (PhoneticSpeller.describeChar('9') !== 'Niner') throw new Error('Digit 9: got "' + PhoneticSpeller.describeChar('9') + '"');
+      if (PhoneticSpeller.describeChar('0') !== 'Zero') throw new Error('Digit 0: got "' + PhoneticSpeller.describeChar('0') + '"');
+      if (PhoneticSpeller.describeChar('@') !== 'at sign') throw new Error('Symbol @: got "' + PhoneticSpeller.describeChar('@') + '"');
+      if (PhoneticSpeller.describeChar(' ') !== 'space') throw new Error('Space: got "' + PhoneticSpeller.describeChar(' ') + '"');
+
+      const allChars = CHAR_GROUPS.upper + CHAR_GROUPS.lower + CHAR_GROUPS.numbers + SYMBOL_CHARS + ' ';
+      for (const ch of allChars) {
+        const desc = PhoneticSpeller.describeChar(ch);
+        if (!desc || desc.startsWith('unknown character')) throw new Error('No phonetic description for "' + ch + '" (every character this tool can generate should have one).');
+      }
+
+      const spelled = PhoneticSpeller.spell('Ab9');
+      if (spelled.length !== 3) throw new Error('Expected 3 entries, got ' + spelled.length);
+      if (spelled[0].description !== 'Capital Alpha' || spelled[1].description !== 'lowercase bravo' || spelled[2].description !== 'Niner') {
+        throw new Error('Unexpected spelling order/content: ' + JSON.stringify(spelled));
+      }
       return 'ok';
     });
 
