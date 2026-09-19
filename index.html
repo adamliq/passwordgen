@@ -268,6 +268,8 @@
   dialog#qr-dialog h2 { margin-top: 0; }
   .qr-code-container { display: flex; justify-content: center; padding: 12px 0; }
   .qr-code-container svg { background: #ffffff; border-radius: 6px; max-width: 100%; height: auto; }
+  .qr-protect { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+  .qr-protect .field { margin-top: 8px; }
 
   .visually-hide-value { letter-spacing: 2px; }
   .copy-live { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); }
@@ -621,8 +623,24 @@
 
   <dialog id="qr-dialog" aria-labelledby="qr-dialog-title">
     <h2 id="qr-dialog-title">QR code</h2>
-    <div class="alert warn">Anyone who can see or photograph this code can read the password it contains. Use it only to transfer a password between your own devices over a screen you trust &mdash; not in a screenshot, screen share, or photo you might keep or send elsewhere. It closes and clears when you're done.</div>
+    <div class="alert warn" id="qr-dialog-warning">Anyone who can see or photograph this code can read the password it contains. Use it only to transfer a password between your own devices over a screen you trust &mdash; not in a screenshot, screen share, or photo you might keep or send elsewhere. It closes and clears when you're done.</div>
     <div id="qr-code-container" class="qr-code-container"></div>
+    <div class="qr-protect">
+      <div class="checkbox-row">
+        <input type="checkbox" id="qr-protect-toggle">
+        <label class="ck-text" for="qr-protect-toggle">Protect this code with a passphrase <span class="desc">so a photo or screenshot of it can't be read without also knowing the passphrase</span></label>
+      </div>
+      <div id="qr-protect-fields" hidden>
+        <div class="field">
+          <label for="qr-protect-passphrase">Passphrase (share this separately &mdash; say it aloud, don't send it alongside the code)</label>
+          <input type="password" id="qr-protect-passphrase" autocomplete="off">
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" id="qr-protect-apply-btn">Apply protection</button>
+        </div>
+        <p class="inline-hint" id="qr-protect-status"></p>
+      </div>
+    </div>
     <div class="btn-row">
       <button type="button" class="btn primary" id="qr-dialog-close-btn">Done</button>
     </div>
@@ -686,12 +704,39 @@
       <label class="ck-text" for="export-numbered-only">Export only numbered rows, without extra labels</label>
     </div>
     <div class="checkbox-row">
+      <input type="checkbox" id="export-encrypt-toggle">
+      <label class="ck-text" for="export-encrypt-toggle">Encrypt exported values with a passphrase <span class="desc">recommended if this file might be synced, backed up, or opened later on another device</span></label>
+    </div>
+    <div class="field" id="export-passphrase-field" hidden>
+      <label for="export-passphrase">Passphrase (keep it separate from the file &mdash; without it, the exported values can't be recovered)</label>
+      <input type="password" id="export-passphrase" autocomplete="off">
+    </div>
+    <div class="checkbox-row">
       <input type="checkbox" id="export-confirm">
-      <label class="ck-text" for="export-confirm">I understand this file will contain sensitive, unencrypted passwords</label>
+      <label class="ck-text" for="export-confirm" id="export-confirm-label">I understand this file will contain sensitive, unencrypted passwords</label>
     </div>
     <div class="btn-row">
       <button type="button" class="btn" id="export-btn" disabled>Download export</button>
     </div>
+    <p class="inline-hint" id="export-status"></p>
+  </section>
+
+  <!-- DECRYPT -->
+  <section class="card" id="decrypt-section">
+    <h2>Decrypt a protected value</h2>
+    <p class="subtle">Paste one or more passphrase-protected values from a QR code or export from this tool (one per line), enter the passphrase they were protected with, and recover the original password or passphrase. Nothing here is sent anywhere &mdash; decryption happens locally, the same as generation.</p>
+    <div class="field">
+      <label for="decrypt-input">Protected value(s)</label>
+      <textarea id="decrypt-input" rows="4" placeholder="SPGENC1:...."></textarea>
+    </div>
+    <div class="field">
+      <label for="decrypt-passphrase">Passphrase</label>
+      <input type="password" id="decrypt-passphrase" autocomplete="off">
+    </div>
+    <div class="btn-row">
+      <button type="button" class="btn" id="decrypt-btn">Decrypt</button>
+    </div>
+    <div id="decrypt-results"></div>
   </section>
 
   <!-- SECURITY GUIDANCE -->
@@ -709,6 +754,7 @@
       <li>Short PINs are generally much weaker than long random passwords and should be reserved for contexts (like device unlock) with other protections such as attempt limits.</li>
       <li>Avoid pasting important passwords into unfamiliar "password strength checker" websites &mdash; you can't verify what they do with the data.</li>
       <li>A QR code of a password is the password: anyone who can scan, screenshot, or photograph it can read it. Use the "QR code" option only on a private screen to move a password to your own other device, and close it once you're done.</li>
+      <li>For extra protection when transferring a password &mdash; over a photo, a synced clipboard, or an exported file &mdash; encrypt it with a passphrase first. Communicate that passphrase a different way than the code or file itself (say it aloud, don't attach it to the same message), and never write the two down together.</li>
     </ol>
   </section>
 
@@ -727,6 +773,7 @@
         <li>JavaScript running in a browser cannot guarantee secure erasure of values from device memory. This page clears references it controls when a value is regenerated, cleared, or the page is hidden/unloaded, but this is a best effort, not a certified secure-wipe.</li>
         <li>Browser extensions, a compromised device, screen capture, clipboard managers/history tools, and malware can still expose passwords displayed or copied on any web page, including this one.</li>
         <li>The "QR code" view is generated by this page's own JavaScript and rendered as an inline SVG graphic. The password is never encoded into a <code>data:</code> URL, an <code>&lt;img&gt;</code> source, or any network request; the graphic is removed from the page when the dialog is closed.</li>
+        <li>Passphrase protection (for a QR code or an export) uses only the browser's built-in Web Crypto API: PBKDF2 (SHA-256, 600,000 iterations) derives an AES-256 key from your passphrase, and AES-GCM encrypts the value with a random salt and IV. This is not custom cryptographic code &mdash; it calls the browser's own, independently-audited implementation. The passphrase is used only in memory for that one operation and is never stored, logged, or transmitted.</li>
       </ul>
       <div class="btn-row">
         <button type="button" class="btn" id="verify-assumptions-btn">Show design assumptions</button>
@@ -2003,6 +2050,173 @@ class QrEncoder {
 }
 
 /* =========================================================================
+ * TransferCrypto — optional passphrase-based protection for a value shown
+ * as a QR code or included in an export, so that someone who intercepts the
+ * QR image or the exported file cannot read it without also knowing a
+ * separately-communicated passphrase. Uses only the browser's built-in
+ * Web Crypto API (PBKDF2 key derivation, AES-256-GCM encryption) — no
+ * custom cryptographic code. The passphrase itself is never stored,
+ * logged, or transmitted anywhere; it exists only for the moment of this
+ * encrypt or decrypt operation.
+ * ========================================================================= */
+class TransferCrypto {
+  static get MAGIC_PREFIX() { return 'SPGENC1:'; }
+  static get PBKDF2_ITERATIONS() { return 600000; }
+  static get SALT_BYTES() { return 16; }
+  static get IV_BYTES() { return 12; }
+
+  static isAvailable() {
+    return typeof window !== 'undefined' && !!window.crypto && !!window.crypto.subtle;
+  }
+
+  static requireAvailable() {
+    if (!TransferCrypto.isAvailable()) {
+      throw new Error('Passphrase protection needs the Web Crypto API (window.crypto.subtle), which is not available in this browser.');
+    }
+  }
+
+  static bytesToBase64(bytes) {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+
+  static base64ToBytes(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  static async deriveKey(passphrase, salt, usages) {
+    TransferCrypto.requireAvailable();
+    const baseKey = await window.crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']
+    );
+    return window.crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: TransferCrypto.PBKDF2_ITERATIONS, hash: 'SHA-256' },
+      baseKey, { name: 'AES-GCM', length: 256 }, false, usages
+    );
+  }
+
+  // Encrypts plaintext with a passphrase. Returns a self-contained text blob
+  // (format prefix + base64 of salt || iv || ciphertext) that can be pasted
+  // or encoded as a QR code, and decrypted independently of any other context.
+  static async encrypt(plaintext, passphrase) {
+    const blobs = await TransferCrypto.encryptBatch([plaintext], passphrase);
+    return blobs[0];
+  }
+
+  // Encrypts several plaintexts with one passphrase, deriving the (expensive,
+  // PBKDF2-based) key only once and reusing it with a fresh random IV per
+  // item — the correct, fast way to protect a whole batch export. Each
+  // returned blob still embeds its own salt/IV and decrypts independently.
+  static async encryptBatch(plaintexts, passphrase) {
+    TransferCrypto.requireAvailable();
+    if (!passphrase) throw new Error('Enter a passphrase to protect these values.');
+    const salt = window.crypto.getRandomValues(new Uint8Array(TransferCrypto.SALT_BYTES));
+    const key = await TransferCrypto.deriveKey(passphrase, salt, ['encrypt']);
+    const blobs = [];
+    for (const plaintext of plaintexts) {
+      const iv = window.crypto.getRandomValues(new Uint8Array(TransferCrypto.IV_BYTES));
+      const ciphertext = await window.crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext)
+      );
+      const combined = new Uint8Array(salt.length + iv.length + ciphertext.byteLength);
+      combined.set(salt, 0);
+      combined.set(iv, salt.length);
+      combined.set(new Uint8Array(ciphertext), salt.length + iv.length);
+      blobs.push(TransferCrypto.MAGIC_PREFIX + TransferCrypto.bytesToBase64(combined));
+    }
+    return blobs;
+  }
+
+  // Parses a blob's structure without decrypting it. Throws a descriptive,
+  // user-facing error for anything malformed.
+  static parseBlob(blob) {
+    const trimmed = (blob || '').trim();
+    if (!trimmed.startsWith(TransferCrypto.MAGIC_PREFIX)) {
+      throw new Error('This does not look like a value protected by this tool (missing the expected format marker).');
+    }
+    let combined;
+    try {
+      combined = TransferCrypto.base64ToBytes(trimmed.slice(TransferCrypto.MAGIC_PREFIX.length));
+    } catch (e) {
+      throw new Error('This value is not valid — it may have been truncated or altered when it was copied.');
+    }
+    const minLen = TransferCrypto.SALT_BYTES + TransferCrypto.IV_BYTES + 1;
+    if (combined.length < minLen) {
+      throw new Error('This value is too short to be a protected value from this tool.');
+    }
+    return {
+      salt: combined.slice(0, TransferCrypto.SALT_BYTES),
+      iv: combined.slice(TransferCrypto.SALT_BYTES, TransferCrypto.SALT_BYTES + TransferCrypto.IV_BYTES),
+      ciphertext: combined.slice(TransferCrypto.SALT_BYTES + TransferCrypto.IV_BYTES)
+    };
+  }
+
+  // Decrypts a blob produced by encrypt(). Throws a descriptive error if the
+  // blob is malformed, or if the passphrase is wrong (AES-GCM authentication
+  // fails, which is indistinguishable from a wrong passphrase by design).
+  static async decrypt(blob, passphrase) {
+    const results = await TransferCrypto.decryptBatch([blob], passphrase);
+    if (results[0].error) throw new Error(results[0].error);
+    return results[0].value;
+  }
+
+  // Decrypts several blobs with one passphrase. Blobs that share a salt
+  // (as every value from one encryptBatch() call does) share one expensive
+  // PBKDF2 key derivation instead of repeating it per value — the practical
+  // case when pasting a whole batch export back in. Returns one
+  // {value} or {error} result per input, in the same order, so a bad blob
+  // in the middle doesn't block the rest.
+  static async decryptBatch(blobs, passphrase) {
+    TransferCrypto.requireAvailable();
+    if (!passphrase) throw new Error('Enter the passphrase these values were protected with.');
+
+    const results = new Array(blobs.length);
+    const parsed = new Array(blobs.length);
+    for (let i = 0; i < blobs.length; i++) {
+      try {
+        parsed[i] = TransferCrypto.parseBlob(blobs[i]);
+      } catch (e) {
+        results[i] = { error: e.message };
+      }
+    }
+
+    const groups = new Map();
+    for (let i = 0; i < parsed.length; i++) {
+      if (!parsed[i]) continue;
+      const saltKey = TransferCrypto.bytesToBase64(parsed[i].salt);
+      if (!groups.has(saltKey)) groups.set(saltKey, []);
+      groups.get(saltKey).push(i);
+    }
+
+    for (const [saltKey, indices] of groups) {
+      let key;
+      try {
+        key = await TransferCrypto.deriveKey(passphrase, TransferCrypto.base64ToBytes(saltKey), ['decrypt']);
+      } catch (e) {
+        for (const i of indices) results[i] = { error: 'Could not derive a decryption key.' };
+        continue;
+      }
+      for (const i of indices) {
+        try {
+          const plaintextBytes = await window.crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: parsed[i].iv }, key, parsed[i].ciphertext
+          );
+          results[i] = { value: new TextDecoder().decode(plaintextBytes) };
+        } catch (e) {
+          results[i] = { error: 'Could not decrypt this value. The passphrase may be incorrect, or the value may be corrupted.' };
+        }
+      }
+    }
+
+    return results;
+  }
+}
+
+/* =========================================================================
  * ThemeManager
  * ========================================================================= */
 class ThemeManager {
@@ -2127,6 +2341,7 @@ class UIController {
     this.bindResultsToolbar();
     this.bindHistory();
     this.bindExport();
+    this.bindDecrypt();
     this.bindTechnicalInfo();
     this.bindSelfTests();
     this.bindResetSettings();
@@ -2142,6 +2357,12 @@ class UIController {
       el.textContent = 'This browser does not provide window.crypto.getRandomValues(), a cryptographically secure random number generator. To protect you, password generation has been disabled on this page rather than falling back to an insecure method. Please use an up-to-date modern browser.';
       this.$('generate-btn').disabled = true;
     }
+    if (!TransferCrypto.isAvailable()) {
+      this.$('qr-protect-toggle').disabled = true;
+      this.$('export-encrypt-toggle').disabled = true;
+      this.$('decrypt-btn').disabled = true;
+      this.$('export-status').textContent = 'Passphrase protection is unavailable: this browser does not provide the Web Crypto "subtle" API.';
+    }
   }
 
   /* ---------------- QR code display ---------------- */
@@ -2155,23 +2376,75 @@ class UIController {
     dialog.addEventListener('click', (e) => {
       if (e.target === dialog) dialog.close();
     });
+
+    const toggle = this.$('qr-protect-toggle');
+    const fields = this.$('qr-protect-fields');
+    const passphraseInput = this.$('qr-protect-passphrase');
+    const status = this.$('qr-protect-status');
+
+    toggle.addEventListener('change', () => {
+      fields.hidden = !toggle.checked;
+      if (!toggle.checked) {
+        passphraseInput.value = '';
+        status.textContent = '';
+        this.renderQrInto(this.qrPlainValue);
+        this.$('qr-dialog-warning').textContent = 'Anyone who can see or photograph this code can read the password it contains. Use it only to transfer a password between your own devices over a screen you trust — not in a screenshot, screen share, or photo you might keep or send elsewhere. It closes and clears when you’re done.';
+      }
+    });
+
+    this.$('qr-protect-apply-btn').addEventListener('click', async () => {
+      if (!TransferCrypto.isAvailable()) {
+        status.textContent = 'Passphrase protection needs a browser feature (Web Crypto) that isn’t available here.';
+        return;
+      }
+      const passphrase = passphraseInput.value;
+      if (!passphrase) {
+        status.textContent = 'Enter a passphrase first.';
+        return;
+      }
+      status.textContent = 'Encrypting…';
+      try {
+        const blob = await TransferCrypto.encrypt(this.qrPlainValue, passphrase);
+        this.renderQrInto(blob);
+        status.textContent = 'Protected. Scanning this code now gives an encrypted value — decrypt it with the same passphrase in the “Decrypt a protected value” section on the other device.';
+        this.$('qr-dialog-warning').textContent = 'This code is passphrase-protected: scanning it yields an encrypted value, not the plain password. Still avoid sharing it publicly — treat the passphrase with the same care as the password itself.';
+      } catch (e) {
+        status.textContent = e.message || 'Could not encrypt this value.';
+      } finally {
+        passphraseInput.value = '';
+      }
+    });
   }
 
   clearQrDialog() {
     this.$('qr-code-container').replaceChildren();
+    this.$('qr-protect-toggle').checked = false;
+    this.$('qr-protect-fields').hidden = true;
+    this.$('qr-protect-passphrase').value = '';
+    this.$('qr-protect-status').textContent = '';
+    this.qrPlainValue = '';
   }
 
-  showQrCode(value) {
+  renderQrInto(text) {
     const container = this.$('qr-code-container');
     container.replaceChildren();
     try {
-      const matrix = QrEncoder.encodeText(value, 'M');
+      const matrix = QrEncoder.encodeText(text, 'M');
       const svg = QrEncoder.renderSvg(matrix, 260);
       container.append(svg);
-      this.$('qr-dialog').showModal();
     } catch (e) {
       this.showValidationErrors([e.message || 'Could not render a QR code for this value.']);
     }
+  }
+
+  showQrCode(value) {
+    this.qrPlainValue = value;
+    this.$('qr-protect-toggle').checked = false;
+    this.$('qr-protect-fields').hidden = true;
+    this.$('qr-protect-passphrase').value = '';
+    this.$('qr-protect-status').textContent = '';
+    this.renderQrInto(value);
+    this.$('qr-dialog').showModal();
   }
 
   bindLifecycleClearing() {
@@ -2183,6 +2456,10 @@ class UIController {
       const dialog = this.$('qr-dialog');
       if (dialog.open) dialog.close();
       this.clearQrDialog();
+      this.$('decrypt-results').replaceChildren();
+      this.$('decrypt-input').value = '';
+      this.$('decrypt-passphrase').value = '';
+      this.$('export-passphrase').value = '';
     };
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) clear();
@@ -2793,22 +3070,64 @@ class UIController {
     const formatSelect = this.$('export-format');
     const delimiterField = this.$('export-delimiter-field');
     const confirmBox = this.$('export-confirm');
+    const confirmLabel = this.$('export-confirm-label');
     const exportBtn = this.$('export-btn');
+    const encryptToggle = this.$('export-encrypt-toggle');
+    const passphraseField = this.$('export-passphrase-field');
+    const passphraseInput = this.$('export-passphrase');
+    const status = this.$('export-status');
 
     const updateDelimiterVisibility = () => { delimiterField.hidden = formatSelect.value !== 'csv'; };
     formatSelect.addEventListener('change', updateDelimiterVisibility);
     updateDelimiterVisibility();
 
-    const updateExportEnabled = () => { exportBtn.disabled = !confirmBox.checked || this.results.length === 0; };
+    const updateEncryptVisibility = () => {
+      passphraseField.hidden = !encryptToggle.checked;
+      confirmLabel.textContent = encryptToggle.checked
+        ? 'I understand the exported values are encrypted, and that losing the passphrase means losing access to them'
+        : 'I understand this file will contain sensitive, unencrypted passwords';
+      if (!encryptToggle.checked) passphraseInput.value = '';
+    };
+    encryptToggle.addEventListener('change', updateEncryptVisibility);
+    updateEncryptVisibility();
+
+    const updateExportEnabled = () => {
+      const passphraseOk = !encryptToggle.checked || passphraseInput.value.length > 0;
+      exportBtn.disabled = !confirmBox.checked || this.results.length === 0 || !passphraseOk;
+    };
     confirmBox.addEventListener('change', updateExportEnabled);
+    encryptToggle.addEventListener('change', updateExportEnabled);
+    passphraseInput.addEventListener('input', updateExportEnabled);
     this._updateExportEnabled = updateExportEnabled;
 
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener('click', async () => {
       if (this.results.length === 0) return;
       const format = formatSelect.value;
       const numberedOnly = this.$('export-numbered-only').checked;
       const delimiter = this.$('export-delimiter').value || ',';
-      const entries = this.results.map(r => ({ value: r.value, bits: r.bits, bandLabel: r.bandLabel }));
+      const willEncrypt = encryptToggle.checked;
+
+      let values = this.results.map(r => r.value);
+      if (willEncrypt) {
+        if (!TransferCrypto.isAvailable()) {
+          status.textContent = 'Passphrase protection needs a browser feature (Web Crypto) that isn’t available here.';
+          return;
+        }
+        status.textContent = 'Encrypting…';
+        exportBtn.disabled = true;
+        try {
+          values = await TransferCrypto.encryptBatch(values, passphraseInput.value);
+        } catch (e) {
+          status.textContent = e.message || 'Could not encrypt these values.';
+          exportBtn.disabled = false;
+          return;
+        } finally {
+          passphraseInput.value = '';
+          updateExportEnabled();
+        }
+      }
+
+      const entries = this.results.map((r, i) => ({ value: values[i], bits: r.bits, bandLabel: r.bandLabel }));
 
       let content, mime, ext;
       if (format === 'csv') { content = ExportManager.buildCsv(entries, delimiter, numberedOnly); mime = 'text/csv'; ext = 'csv'; }
@@ -2816,11 +3135,86 @@ class UIController {
       else { content = ExportManager.buildText(entries, numberedOnly); mime = 'text/plain'; ext = 'txt'; }
 
       ExportManager.download('passwords.' + ext, content, mime);
+      status.textContent = willEncrypt
+        ? 'Encrypted export downloaded. Decrypt each value with the same passphrase in the “Decrypt a protected value” section below.'
+        : 'Export downloaded.';
       this.announce('Export downloaded.');
     });
 
     const origRender = this.renderResults.bind(this);
     this.renderResults = () => { origRender(); updateExportEnabled(); };
+  }
+
+  /* ---------------- Decrypt ---------------- */
+
+  bindDecrypt() {
+    this.$('decrypt-btn').addEventListener('click', () => this.handleDecrypt());
+  }
+
+  async handleDecrypt() {
+    const input = this.$('decrypt-input');
+    const passphraseInput = this.$('decrypt-passphrase');
+    const resultsEl = this.$('decrypt-results');
+    const btn = this.$('decrypt-btn');
+    resultsEl.replaceChildren();
+
+    const lines = input.value.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      this.showValidationErrors(['Paste at least one protected value to decrypt.']);
+      return;
+    }
+    if (!TransferCrypto.isAvailable()) {
+      this.showValidationErrors(['Decryption needs a browser feature (Web Crypto) that isn’t available here.']);
+      return;
+    }
+    this.showValidationErrors([]);
+
+    const passphrase = passphraseInput.value;
+    btn.disabled = true;
+    btn.textContent = 'Decrypting…';
+    let outcomes;
+    try {
+      outcomes = await TransferCrypto.decryptBatch(lines, passphrase);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Decrypt';
+      passphraseInput.value = '';
+    }
+
+    outcomes.forEach((outcome, i) => {
+      const row = document.createElement('div');
+      row.className = 'result-row';
+
+      const idxEl = document.createElement('div');
+      idxEl.className = 'result-index';
+      idxEl.textContent = '#' + (i + 1);
+
+      const valueEl = document.createElement('div');
+      valueEl.className = 'result-value';
+
+      if (outcome.error) {
+        valueEl.textContent = outcome.error;
+        valueEl.style.color = 'var(--danger)';
+        row.append(idxEl, valueEl);
+      } else {
+        valueEl.textContent = outcome.value;
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn small';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', async () => {
+          const ok = await ClipboardManager.copy(outcome.value);
+          this.flashCopyFeedback(copyBtn, ok);
+        });
+        const actions = document.createElement('div');
+        actions.className = 'result-actions';
+        actions.append(copyBtn);
+        row.append(idxEl, valueEl, actions);
+      }
+      resultsEl.append(row);
+    });
+
+    this.announce('Decryption complete.');
   }
 
   /* ---------------- Technical info ---------------- */
@@ -2859,9 +3253,14 @@ class UIController {
     this.$('run-self-tests-btn').addEventListener('click', () => this.runSelfTests());
   }
 
-  runSelfTests() {
+  async runSelfTests() {
+    const btn = this.$('run-self-tests-btn');
+    btn.disabled = true;
+    btn.textContent = 'Running…';
     const showDiagnostics = this.$('show-test-diagnostics').checked;
-    const results = SelfTestRunner.run();
+    const results = await SelfTestRunner.run();
+    btn.disabled = false;
+    btn.textContent = 'Run self-tests';
     const table = this.$('self-test-table');
     const tbody = this.$('self-test-tbody');
     tbody.replaceChildren();
@@ -2893,11 +3292,11 @@ class UIController {
  * SelfTestRunner — exercises the generator logic against expected behaviour
  * ========================================================================= */
 class SelfTestRunner {
-  static run() {
+  static async run() {
     const results = [];
-    const add = (name, fn) => {
+    const add = async (name, fn) => {
       try {
-        const detail = fn();
+        const detail = await fn();
         results.push({ name, status: 'pass', detail: detail || '' });
       } catch (e) {
         if (e instanceof SelfTestSkip) {
@@ -2908,7 +3307,7 @@ class SelfTestRunner {
       }
     };
 
-    add('Secure randomness is available', () => {
+    await add('Secure randomness is available', () => {
       if (!SecureRandom.isAvailable()) throw new Error('window.crypto.getRandomValues is missing.');
       return 'available';
     });
@@ -2917,7 +3316,7 @@ class SelfTestRunner {
       return results; // remaining tests are not applicable without a CSPRNG
     }
 
-    add('Required groups appear when requested', () => {
+    await add('Required groups appear when requested', () => {
       const options = SelfTestRunner.baseRandomOptions({ length: 24, requireEachGroup: true });
       const { value } = PasswordGenerator.generate(options);
       const hasUpper = /[A-Z]/.test(value), hasLower = /[a-z]/.test(value), hasNum = /[0-9]/.test(value), hasSym = new RegExp('[' + SYMBOL_CHARS.replace(/[-[\]/{}()*+?.\\^$|]/g, '\\$&') + ']').test(value);
@@ -2925,21 +3324,21 @@ class SelfTestRunner {
       return 'ok (length ' + value.length + ')';
     });
 
-    add('Excluded characters never appear', () => {
+    await add('Excluded characters never appear', () => {
       const options = SelfTestRunner.baseRandomOptions({ length: 40, excludeCustom: 'aeiou', requireEachGroup: false, groups: { upper: false, lower: true, numbers: false, symbols: false, spaces: false } });
       const { value } = PasswordGenerator.generate(options);
       if (/[aeiou]/.test(value)) throw new Error('Excluded vowels appeared in output.');
       return 'ok';
     });
 
-    add('Output length matches requested length', () => {
+    await add('Output length matches requested length', () => {
       const options = SelfTestRunner.baseRandomOptions({ length: 37 });
       const { value } = PasswordGenerator.generate(options);
       if (value.length !== 37) throw new Error('Expected length 37, got ' + value.length);
       return 'ok';
     });
 
-    add('First-letter and last-alphanumeric rules respected', () => {
+    await add('First-letter and last-alphanumeric rules respected', () => {
       const options = SelfTestRunner.baseRandomOptions({ length: 16, firstLetter: true, lastAlphanumeric: true });
       const { value } = PasswordGenerator.generate(options);
       if (!/[A-Za-z]/.test(value[0])) throw new Error('First character is not a letter.');
@@ -2947,14 +3346,14 @@ class SelfTestRunner {
       return 'ok';
     });
 
-    add('Unique-character mode produces no duplicates', () => {
+    await add('Unique-character mode produces no duplicates', () => {
       const options = SelfTestRunner.baseRandomOptions({ length: 20, preventDuplicateChars: true, requireEachGroup: false });
       const { value } = PasswordGenerator.generate(options);
       if (new Set(value.split('')).size !== value.length) throw new Error('Duplicate characters found.');
       return 'ok';
     });
 
-    add('Batch size produces the requested count', () => {
+    await add('Batch size produces the requested count', () => {
       const n = 7;
       const options = SelfTestRunner.baseRandomOptions({ length: 12 });
       const out = [];
@@ -2963,7 +3362,7 @@ class SelfTestRunner {
       return 'ok (' + n + ' generated)';
     });
 
-    add('Passphrase word count is correct', () => {
+    await add('Passphrase word count is correct', () => {
       const options = SelfTestRunner.basePassphraseOptions({ wordCount: 6 });
       const { value, wordCount } = PassphraseGenerator.generate(options);
       const wordsInValue = value.split(/[^A-Za-z]+/).filter(Boolean);
@@ -2972,7 +3371,7 @@ class SelfTestRunner {
       return 'ok';
     });
 
-    add('Duplicate words prevented when requested', () => {
+    await add('Duplicate words prevented when requested', () => {
       const options = SelfTestRunner.basePassphraseOptions({ wordCount: 8, preventDuplicates: true });
       const { value } = PassphraseGenerator.generate(options);
       const tokens = value.toLowerCase().split(/[^a-z]+/).filter(Boolean);
@@ -2981,7 +3380,7 @@ class SelfTestRunner {
       return 'ok';
     });
 
-    add('Generated output is not written to localStorage', () => {
+    await add('Generated output is not written to localStorage', () => {
       let before;
       try { before = JSON.stringify(window.localStorage); } catch (e) { throw new SelfTestSkip('localStorage unavailable in this context.'); }
       const options = SelfTestRunner.baseRandomOptions({ length: 22 });
@@ -2991,14 +3390,14 @@ class SelfTestRunner {
       return 'ok';
     });
 
-    add('Invalid configuration is rejected (no groups selected)', () => {
+    await add('Invalid configuration is rejected (no groups selected)', () => {
       const options = SelfTestRunner.baseRandomOptions({ groups: { upper: false, lower: false, numbers: false, symbols: false, spaces: false } });
       const errors = ConstraintValidator.validateRandom(options);
       if (errors.length === 0) throw new Error('Expected validation errors for empty group selection.');
       return 'ok (' + errors.length + ' error(s) reported)';
     });
 
-    add('Secure shuffle does not fix required-character positions', () => {
+    await add('Secure shuffle does not fix required-character positions', () => {
       const options = SelfTestRunner.baseRandomOptions({ length: 8, requireEachGroup: true, avoidAdjacentRepeats: false });
       const firstCharTally = new Map();
       const samples = 60;
@@ -3011,7 +3410,7 @@ class SelfTestRunner {
       return 'ok (' + firstCharTally.size + ' distinct first characters across ' + samples + ' samples)';
     });
 
-    add('QR code encoding succeeds for representative lengths', () => {
+    await add('QR code encoding succeeds for representative lengths', () => {
       const samples = ['aB3!', 'K7#mQ2$xR9!vL4@nP1&w', 'x'.repeat(256)];
       for (const s of samples) {
         const matrix = QrEncoder.encodeText(s, 'M');
@@ -3022,7 +3421,7 @@ class SelfTestRunner {
       return 'ok (lengths tested: ' + samples.map(s => s.length).join(', ') + ')';
     });
 
-    add('QR code encoding is deterministic', () => {
+    await add('QR code encoding is deterministic', () => {
       const value = 'RepeatabilityCheck-42!';
       const a = QrEncoder.encodeText(value, 'M');
       const b = QrEncoder.encodeText(value, 'M');
@@ -3034,6 +3433,32 @@ class SelfTestRunner {
       }
       return 'ok (' + a.size + 'x' + a.size + ' modules, version ' + a.version + ')';
     });
+
+    if (!TransferCrypto.isAvailable()) {
+      results.push({ name: 'Passphrase-protected transfer round-trips correctly', status: 'na', detail: 'window.crypto.subtle is not available in this browser.' });
+      results.push({ name: 'Passphrase-protected transfer rejects an incorrect passphrase', status: 'na', detail: 'window.crypto.subtle is not available in this browser.' });
+    } else {
+      await add('Passphrase-protected transfer round-trips correctly', async () => {
+        const original = 'K7#mQ2$xR9!vL4@nP1&w';
+        const blob = await TransferCrypto.encrypt(original, 'correct horse battery staple');
+        if (!blob.startsWith(TransferCrypto.MAGIC_PREFIX)) throw new Error('Encrypted blob is missing its format prefix.');
+        const recovered = await TransferCrypto.decrypt(blob, 'correct horse battery staple');
+        if (recovered !== original) throw new Error('Decrypted value did not match the original.');
+        return 'ok (blob length ' + blob.length + ')';
+      });
+
+      await add('Passphrase-protected transfer rejects an incorrect passphrase', async () => {
+        const blob = await TransferCrypto.encrypt('some-generated-password', 'right-passphrase');
+        let threw = false;
+        try {
+          await TransferCrypto.decrypt(blob, 'wrong-passphrase');
+        } catch (e) {
+          threw = true;
+        }
+        if (!threw) throw new Error('Decrypting with the wrong passphrase did not fail.');
+        return 'ok (wrong passphrase correctly rejected)';
+      });
+    }
 
     return results;
   }
