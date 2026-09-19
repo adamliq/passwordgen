@@ -1,0 +1,12 @@
+{
+  "name": "secure-password-generator-ci",
+  "private": true,
+  "version": "1.0.0",
+  "description": "CI tooling only. The shipped product is the standalone secure-password-generator.html / index.html files — this package.json exists solely to run the smoke test in CI.",
+  "scripts": {
+    "test": "node test/smoke.js"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}
