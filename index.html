@@ -200,7 +200,8 @@
   @media (max-width: 640px) { .field-grid { grid-template-columns: 1fr; } }
   .field { display: flex; flex-direction: column; gap: 6px; }
   .field label { font-weight: 600; font-size: 0.92rem; }
-  .field input[type="text"], .field input[type="number"], .field select, .field textarea {
+  .field input[type="text"], .field input[type="number"], .field input[type="password"],
+  .field input[type="file"], .field select, .field textarea {
     padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--bg-inset); color: var(--text); min-height: 40px;
   }
@@ -334,8 +335,7 @@
     margin-top: 10px; padding: 10px; background: var(--bg-inset); border-radius: 8px;
   }
   .vault-passphrase-row .field { flex: 1 1 160px; margin: 0; }
-  .vault-passphrase-row .vault-passphrase-name { flex: 0 1 160px; }
-  .vault-passphrase-row .vault-passphrase-value { flex: 1 1 200px; }
+  .vault-passphrase-row .vault-webauthn-status { flex: 1 1 200px; margin: 0 0 10px; }
 
   .phonetic-list {
     max-height: 320px; overflow-y: auto; border: 1px solid var(--border);
@@ -716,7 +716,7 @@
         <label for="settings-import-file">Import settings from a JSON file</label>
         <input type="file" id="settings-import-file" accept=".json,application/json">
       </div>
-      <p class="inline-hint" id="settings-import-status"></p>
+      <p class="inline-hint" id="settings-import-status" aria-live="polite"></p>
     </fieldset>
 
     <div class="btn-row">
@@ -1016,7 +1016,7 @@
   <section class="card" id="vault-section">
     <h2>Key vault</h2>
     <p class="subtle">Save passwords here using each result's "Save to vault" button, then download the vault as one encrypted file to keep or carry to another device. The vault lives only in this tab's memory and in whatever file you explicitly download &mdash; nothing here is ever written to this browser's storage automatically, and like the rest of this page, it's cleared if you switch away from or close this tab. Download it before you navigate away.</p>
-    <div class="alert warn">Whoever has the vault file <em>and</em> a way to unlock it (any one of its passphrases, or the security key that protected it) can read everything in it. Pick strong, memorable passphrases (a generated passphrase from this tool works well) and keep them separate from the file itself. If a vault is protected with only one way in and it's lost &mdash; a forgotten passphrase, or a lost security key &mdash; there is no way to recover it. Adding more than one gives everyone with a passphrase their own independent way in, and a second way in if one is lost. Removing someone's access later means saving a fresh copy of the vault with a new set of passphrases and sharing that instead &mdash; the old file still works for anyone who kept it.</div>
+    <div class="alert warn">Whoever has the vault file <em>and</em> a way to unlock it (any one of its passphrases, or any one of its security keys) can read everything in it. Pick strong, memorable passphrases (a generated passphrase from this tool works well) and keep them separate from the file itself. If a vault is protected with only one way in and it's lost &mdash; a forgotten passphrase, or a lost security key &mdash; there is no way to recover it. Adding more than one gives everyone their own independent way in, and a second way in if one is lost. Removing someone's access later means saving a fresh copy of the vault with a new set of passphrases/keys and sharing that instead &mdash; the old file still works for anyone who kept it.</div>
 
     <div class="checkbox-row">
       <input type="checkbox" id="vault-idle-lock-toggle">
@@ -1040,14 +1040,15 @@
       <div class="btn-row">
         <button type="button" class="btn" id="vault-save-add-passphrase-btn">+ Add a passphrase</button>
       </div>
-      <div class="checkbox-row">
-        <input type="checkbox" id="vault-save-webauthn-toggle">
-        <label class="ck-text" for="vault-save-webauthn-toggle">Protect with a security key <span class="desc">e.g. a YubiKey &mdash; touch it instead of typing a passphrase; only works on the hosted (HTTPS) version of this page</span></label>
+      <p class="subtle" id="vault-save-webauthn-hint">Security keys (e.g. a YubiKey) &mdash; touch one instead of typing a passphrase; only works on the hosted (HTTPS) version of this page. Adding more than one lets any of them unlock the file; you'll be asked to touch each new one once, when you save.</p>
+      <div id="vault-save-webauthn-list"></div>
+      <div class="btn-row">
+        <button type="button" class="btn" id="vault-save-add-webauthn-btn">+ Add a security key</button>
       </div>
       <div class="btn-row">
         <button type="button" class="btn" id="vault-save-btn">Download vault file</button>
       </div>
-      <p class="inline-hint" id="vault-save-status"></p>
+      <p class="inline-hint" id="vault-save-status" aria-live="polite"></p>
     </fieldset>
 
     <fieldset>
@@ -1065,7 +1066,7 @@
         <button type="button" class="btn" id="vault-open-btn">Open with passphrase</button>
         <button type="button" class="btn" id="vault-open-webauthn-btn">Open with security key</button>
       </div>
-      <p class="inline-hint" id="vault-open-status"></p>
+      <p class="inline-hint" id="vault-open-status" aria-live="polite"></p>
     </fieldset>
   </section>
 
@@ -1111,7 +1112,7 @@
         <li>The "QR code" view is generated by this page's own JavaScript and rendered as an inline SVG graphic. The password is never encoded into a <code>data:</code> URL, an <code>&lt;img&gt;</code> source, or any network request; the graphic is removed from the page when the dialog is closed.</li>
         <li>Passphrase protection (for a QR code, an export, or the key vault) uses only the browser's built-in Web Crypto API: PBKDF2 (SHA-256, 600,000 iterations) derives an AES-256 key from your passphrase, and AES-GCM encrypts the value with a random salt and IV. This is not custom cryptographic code &mdash; it calls the browser's own, independently-audited implementation. The passphrase is used only in memory for that one operation and is never stored, logged, or transmitted.</li>
         <li>The key vault's entries live only in this tab's memory and in whatever encrypted file you explicitly download &mdash; there is no automatic save to <code>localStorage</code>, <code>IndexedDB</code>, or any server, and the in-memory list is cleared on the same hide/close/unload triggers as every other sensitive value on this page.</li>
-        <li>A vault file protected by more than one passphrase, and/or a security key, uses envelope encryption: a random key encrypts the vault data once, and that random key is then separately encrypted ("wrapped") once per passphrase or security key you add. Any one of them decrypts its own wrapped copy of the same random key, which is what actually unlocks the data &mdash; so each one opens the file independently, without needing any of the others. This is also how a vault can be shared with several people, each using their own passphrase. Choosing only one passphrase still works exactly as before; there's nothing to wrap more than once unless you add more.</li>
+        <li>A vault file protected by more than one passphrase and/or security key uses envelope encryption: a random key encrypts the vault data once, and that random key is then separately encrypted ("wrapped") once per passphrase or security key you add. Any one of them decrypts its own wrapped copy of the same random key, which is what actually unlocks the data &mdash; so each one opens the file independently, without needing any of the others. This is how a vault can be shared with several people, each using their own passphrase and/or their own security key. When a file has more than one security key, opening it with "security key" runs one authentication step that figures out which physical key was presented (using the WebAuthn "prf" extension's <code>evalByCredential</code>), rather than guessing or prompting once per key &mdash; a narrower-supported part of that extension than a single security key needs, so very old or unusual browser/authenticator combinations may not support it. Choosing only one passphrase or one security key still works exactly as before; there's nothing to wrap more than once, or disambiguate, unless you add more.</li>
         <li>Security-key protection uses the browser's WebAuthn API and its "prf" extension: touching a registered physical key with a given random salt deterministically returns a secret, used directly as an AES-GCM key. The secret never leaves the hardware and is never visible to this page's JavaScript, only the result of that one derivation. Browsers refuse WebAuthn entirely on pages opened as a local file (a <code>SecurityError</code>, confirmed in testing) &mdash; this feature only works when the page is served over HTTPS or from localhost, and needs an authenticator and browser that both support the "prf" extension, which is detected and reported explicitly rather than assumed.</li>
         <li>The optional "Speak" button under "Spell it out" uses the browser's built-in <code>speechSynthesis</code> API, which runs locally through the operating system's own text-to-speech engine on every browser tested; this page makes no network request to produce speech. Voice availability and quality vary by device and operating system, and a device with no voices installed will fall back to the on-screen text after a few seconds.</li>
       </ul>
@@ -1854,6 +1855,10 @@ class StrengthEstimator {
     if (mode === 'random') {
       return 'Estimated at ' + roundedBits + ' bits of entropy from the configured character pool and length. ' +
         band.label + ' generally means an attacker attempting every possibility would need on the order of 2^' + Math.round(bits) + ' guesses.';
+    }
+    if (mode === 'pasted') {
+      return 'Estimated at ' + roundedBits + ' bits of entropy from the character pool inferred from this value’s length and the character types it uses. ' +
+        band.label + ' generally means an attacker attempting every possibility would need on the order of 2^' + Math.round(bits) + ' guesses — assuming the pool guess is right and the value was actually chosen at random from it, neither of which this check can confirm.';
     }
     return 'Estimated at ' + roundedBits + ' bits of entropy from independently selected words (plus any added number or symbol). ' +
       band.label + ' generally means an attacker attempting every possibility would need on the order of 2^' + Math.round(bits) + ' guesses.';
@@ -2878,6 +2883,53 @@ class WebAuthnCrypto {
     return new Uint8Array(results.prf.results.first);
   }
 
+  // Disambiguates between several previously-registered credentials in one
+  // authentication ceremony, so opening a vault protected by more than one
+  // security key doesn't require knowing in advance which physical key is
+  // being presented. Uses the WebAuthn "prf" extension's evalByCredential
+  // map (one salt per candidate credential) rather than the single "eval"
+  // used by derivePrfSecret above, which only carries one salt for one
+  // credential. evalByCredential is a newer, more narrowly supported corner
+  // of the prf extension than the base case — if the authenticator/browser
+  // ignores it, this throws the same "did not return the expected secret"
+  // error as an unsupported prf extension would.
+  // candidates: [{ credentialId: Uint8Array, salt: Uint8Array }, ...]
+  // Returns { secret: Uint8Array, credentialId: Uint8Array } for whichever
+  // candidate the responding physical key actually matched.
+  static async derivePrfSecretForCredentials(candidates) {
+    WebAuthnCrypto.requireAvailable();
+    const challenge = window.crypto.getRandomValues(new Uint8Array(32));
+    const evalByCredential = {};
+    for (const c of candidates) {
+      evalByCredential[WebAuthnCrypto.bytesToBase64Url(c.credentialId)] = { first: c.salt };
+    }
+    let assertion;
+    try {
+      assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: candidates.map(c => ({ id: c.credentialId, type: 'public-key' })),
+          userVerification: 'preferred',
+          timeout: 60000,
+          extensions: { prf: { evalByCredential } }
+        }
+      });
+    } catch (e) {
+      throw new Error(WebAuthnCrypto.explainError(e));
+    }
+    const results = assertion.getClientExtensionResults();
+    if (!results.prf || !results.prf.results || !results.prf.results.first) {
+      throw new Error('This security key did not return the expected secret. Some browsers don’t yet support unlocking a file protected by more than one security key — try the specific key that protected it on its own, or ask for a passphrase instead.');
+    }
+    return { secret: new Uint8Array(results.prf.results.first), credentialId: new Uint8Array(assertion.rawId) };
+  }
+
+  static bytesToBase64Url(bytes) {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
   static explainError(e) {
     if (e && e.name === 'SecurityError') {
       return 'Security-key protection is not available on this page (it needs HTTPS or localhost, not a local file).';
@@ -3130,14 +3182,15 @@ class VaultManager {
     return new TextDecoder().decode(plaintextBytes);
   }
 
-  // protections: { passphrases?: [{ label, passphrase }], credentialId?: Uint8Array }
-  // — at least one passphrase or a credentialId is required. Any number of
-  // passphrases can be listed; each gets its own independent wrap, so any
-  // one of them unlocks the file (e.g. sharing a vault with several people,
-  // each using their own passphrase).
+  // protections: { passphrases?: [{ label, passphrase }], securityKeys?: [{ label, credentialId }] }
+  // — at least one passphrase or security key is required. Any number of
+  // either can be listed; each gets its own independent wrap, so any one of
+  // them unlocks the file (e.g. sharing a vault with several people, each
+  // using their own passphrase and/or their own security key).
   static async serializeEnvelope(entries, protections) {
     const passphrases = (protections && protections.passphrases) || [];
-    if (!protections || (passphrases.length === 0 && !protections.credentialId)) {
+    const securityKeys = (protections && protections.securityKeys) || [];
+    if (!protections || (passphrases.length === 0 && securityKeys.length === 0)) {
       throw new Error('Choose at least one protection method (a passphrase or a security key).');
     }
     TransferCrypto.requireAvailable();
@@ -3153,14 +3206,15 @@ class VaultManager {
         const wrap = await VaultManager.wrapDekWithKey(dek, kek);
         wraps.push(Object.assign({ method: 'passphrase', label: entry.label || '', salt: TransferCrypto.bytesToBase64(salt) }, wrap));
       }
-      if (protections.credentialId) {
+      for (const entry of securityKeys) {
         const salt = window.crypto.getRandomValues(new Uint8Array(WebAuthnCrypto.SALT_BYTES));
-        const secret = await WebAuthnCrypto.derivePrfSecret(protections.credentialId, salt);
+        const secret = await WebAuthnCrypto.derivePrfSecret(entry.credentialId, salt);
         const kek = await window.crypto.subtle.importKey('raw', secret, 'AES-GCM', false, ['encrypt']);
         const wrap = await VaultManager.wrapDekWithKey(dek, kek);
         wraps.push(Object.assign({
           method: 'webauthn',
-          credentialId: TransferCrypto.bytesToBase64(protections.credentialId),
+          label: entry.label || '',
+          credentialId: TransferCrypto.bytesToBase64(entry.credentialId),
           salt: TransferCrypto.bytesToBase64(salt)
         }, wrap));
       }
@@ -3194,24 +3248,31 @@ class VaultManager {
     return envelope;
   }
 
-  // Tries the given passphrase against every passphrase-protected wrap in
-  // turn (a file can carry several, one per person who should be able to
-  // open it) and uses whichever one it matches, if any.
+  // Tries the given passphrase against every passphrase-protected wrap at
+  // once (a file can carry several, one per person who should be able to
+  // open it) and uses whichever one matches, if any. Attempts run in
+  // parallel — each is a ~600k-iteration PBKDF2 derivation, so trying them
+  // one at a time would make opening noticeably slower the more
+  // passphrases a file carries. Returns { entries, label } — label names
+  // whichever passphrase actually matched, for a file protected by several.
   static async deserializeEnvelopeWithPassphrase(envelope, passphrase) {
     const wraps = envelope.wraps.filter(w => w.method === 'passphrase');
     if (wraps.length === 0) throw new Error('This vault file is not protected with a passphrase — try "Open with security key" instead.');
 
-    let dek = null;
-    for (const wrap of wraps) {
-      try {
-        const kek = await TransferCrypto.deriveKey(passphrase, TransferCrypto.base64ToBytes(wrap.salt), ['decrypt']);
-        dek = await VaultManager.unwrapDekWithKey(wrap, kek);
-        break;
-      } catch (e) {
-        // Not a match for this wrap — try the next one.
-      }
+    const tryWrap = async (wrap) => {
+      const kek = await TransferCrypto.deriveKey(passphrase, TransferCrypto.base64ToBytes(wrap.salt), ['decrypt']);
+      const dek = await VaultManager.unwrapDekWithKey(wrap, kek);
+      return { dek, wrap };
+    };
+
+    let dek, matchedWrap;
+    try {
+      const result = await Promise.any(wraps.map(tryWrap));
+      dek = result.dek;
+      matchedWrap = result.wrap;
+    } catch (e) {
+      throw new Error('Could not unlock this vault. The passphrase may be incorrect, or the file may be corrupted.');
     }
-    if (!dek) throw new Error('Could not unlock this vault. The passphrase may be incorrect, or the file may be corrupted.');
     try {
       let plaintext;
       try {
@@ -3219,24 +3280,47 @@ class VaultManager {
       } catch (e) {
         throw new Error('The vault key unlocked, but the data could not be decrypted. The file may be corrupted.');
       }
-      return VaultManager.parsePayload(plaintext);
+      return { entries: VaultManager.parsePayload(plaintext), label: matchedWrap.label || '' };
     } finally {
       dek.fill(0);
     }
   }
 
+  // A file with exactly one security-key wrap uses the simple, universally
+  // supported single-credential flow (unchanged from before multi-key
+  // support existed — zero added risk for the common case). A file with
+  // more than one runs a single authentication ceremony disambiguating
+  // between all of them (see WebAuthnCrypto.derivePrfSecretForCredentials)
+  // rather than guessing which one was touched or prompting once per
+  // candidate. Returns { entries, label } like the passphrase method above.
   static async deserializeEnvelopeWithSecurityKey(envelope) {
-    const wrap = envelope.wraps.find(w => w.method === 'webauthn');
-    if (!wrap) throw new Error('This vault file is not protected with a security key — try "Open with passphrase" instead.');
+    const wraps = envelope.wraps.filter(w => w.method === 'webauthn');
+    if (wraps.length === 0) throw new Error('This vault file is not protected with a security key — try "Open with passphrase" instead.');
 
-    let dek;
-    try {
-      const credentialId = TransferCrypto.base64ToBytes(wrap.credentialId);
-      const secret = await WebAuthnCrypto.derivePrfSecret(credentialId, TransferCrypto.base64ToBytes(wrap.salt));
-      const kek = await window.crypto.subtle.importKey('raw', secret, 'AES-GCM', false, ['decrypt']);
-      dek = await VaultManager.unwrapDekWithKey(wrap, kek);
-    } catch (e) {
-      throw new Error('Could not unlock this vault with this security key. It may not be the key that protected it, or the file may be corrupted.');
+    let dek, matchedWrap;
+    if (wraps.length === 1) {
+      const wrap = wraps[0];
+      try {
+        const credentialId = TransferCrypto.base64ToBytes(wrap.credentialId);
+        const secret = await WebAuthnCrypto.derivePrfSecret(credentialId, TransferCrypto.base64ToBytes(wrap.salt));
+        const kek = await window.crypto.subtle.importKey('raw', secret, 'AES-GCM', false, ['decrypt']);
+        dek = await VaultManager.unwrapDekWithKey(wrap, kek);
+        matchedWrap = wrap;
+      } catch (e) {
+        throw new Error('Could not unlock this vault with this security key. It may not be the key that protected it, or the file may be corrupted.');
+      }
+    } else {
+      const candidates = wraps.map(w => ({ credentialId: TransferCrypto.base64ToBytes(w.credentialId), salt: TransferCrypto.base64ToBytes(w.salt) }));
+      const { secret, credentialId } = await WebAuthnCrypto.derivePrfSecretForCredentials(candidates);
+      const respondedB64 = TransferCrypto.bytesToBase64(credentialId);
+      matchedWrap = wraps.find(w => w.credentialId === respondedB64);
+      if (!matchedWrap) throw new Error('The responding security key does not match any key registered for this vault.');
+      try {
+        const kek = await window.crypto.subtle.importKey('raw', secret, 'AES-GCM', false, ['decrypt']);
+        dek = await VaultManager.unwrapDekWithKey(matchedWrap, kek);
+      } catch (e) {
+        throw new Error('This security key responded, but could not unwrap this vault. The file may be corrupted.');
+      }
     }
     try {
       let plaintext;
@@ -3245,7 +3329,7 @@ class VaultManager {
       } catch (e) {
         throw new Error('The vault key unlocked, but the data could not be decrypted. The file may be corrupted.');
       }
-      return VaultManager.parsePayload(plaintext);
+      return { entries: VaultManager.parsePayload(plaintext), label: matchedWrap.label || '' };
     } finally {
       dek.fill(0);
     }
@@ -3952,6 +4036,7 @@ class UIController {
     this.nextId = 1;
     this.vaultEntries = []; // [{id, label, value, mode, createdAt, hidden}]
     this.vaultNextId = 1;
+    this.vaultRowIdCounter = 0; // unique element ids for dynamically-added vault passphrase/security-key rows
     this.webauthnCredentialId = null; // cached for this tab/session only; not a secret
     this.chunkedDisplay = false; // display-only grouping; never affects the underlying value
     this.phoneticValue = '';
@@ -4022,11 +4107,11 @@ class UIController {
       this.$('qr-webauthn-toggle').disabled = true;
       this.$('export-webauthn-toggle').disabled = true;
       this.$('decrypt-webauthn-btn').disabled = true;
-      this.$('vault-save-webauthn-toggle').disabled = true;
+      this.$('vault-save-add-webauthn-btn').disabled = true;
       this.$('vault-open-webauthn-btn').disabled = true;
       this.$('qr-webauthn-toggle').nextElementSibling.querySelector('.desc').textContent = 'unavailable here: ' + reason;
       this.$('export-webauthn-toggle').nextElementSibling.querySelector('.desc').textContent = 'unavailable here: ' + reason;
-      this.$('vault-save-webauthn-toggle').nextElementSibling.querySelector('.desc').textContent = 'unavailable here: ' + reason;
+      this.$('vault-save-webauthn-hint').textContent = 'Security keys are unavailable here: ' + reason;
     }
   }
 
@@ -4421,11 +4506,11 @@ class UIController {
       this.vaultEntries = [];
       this.renderVaultList();
       this.clearVaultSavePassphraseRows();
+      this.clearVaultSaveWebauthnRows();
       this.$('vault-open-passphrase').value = '';
       this.$('vault-file-input').value = '';
       this.webauthnCredentialId = null;
       this.$('export-webauthn-toggle').checked = false;
-      this.$('vault-save-webauthn-toggle').checked = false;
       this.$('wifi-password').value = '';
       this.showWifiErrors([]);
       const phoneticDialog = this.$('phonetic-dialog');
@@ -5273,7 +5358,7 @@ class UIController {
     this.$('check-strength-length').textContent = value.length + ' characters';
     this.$('check-strength-pool').textContent = est.poolSize + ' characters (estimated from character types used)';
     this.$('check-strength-label').textContent = band.label;
-    this.$('check-strength-explanation').textContent = StrengthEstimator.explain('random', est.bits, { label: band.label });
+    this.$('check-strength-explanation').textContent = StrengthEstimator.explain('pasted', est.bits, { label: band.label });
 
     const issuesList = this.$('check-strength-issues');
     issuesList.replaceChildren();
@@ -5677,6 +5762,8 @@ class UIController {
     this.$('vault-save-add-passphrase-btn').addEventListener('click', () => this.addVaultPassphraseRow());
     this.addVaultPassphraseRow();
 
+    this.$('vault-save-add-webauthn-btn').addEventListener('click', () => this.addVaultWebauthnRow());
+
     this.$('vault-save-btn').addEventListener('click', () => this.handleSaveVaultFile());
     this.$('vault-open-btn').addEventListener('click', () => this.handleOpenVaultFile());
     this.$('vault-open-webauthn-btn').addEventListener('click', () => this.handleOpenVaultFileWithSecurityKey());
@@ -5684,6 +5771,7 @@ class UIController {
 
   addVaultPassphraseRow() {
     const list = this.$('vault-save-passphrase-list');
+    const rowId = ++this.vaultRowIdCounter;
     const row = document.createElement('div');
     row.className = 'vault-passphrase-row';
 
@@ -5691,24 +5779,25 @@ class UIController {
     nameField.className = 'field';
     const nameLabel = document.createElement('label');
     nameLabel.textContent = 'Name (optional)';
+    nameLabel.htmlFor = 'vault-passphrase-name-' + rowId;
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
+    nameInput.id = 'vault-passphrase-name-' + rowId;
     nameInput.className = 'vault-passphrase-name';
     nameInput.placeholder = 'e.g. Alice';
-    nameInput.setAttribute('aria-label', 'Name for this passphrase (optional)');
-    nameLabel.append(nameInput);
-    nameField.append(nameLabel);
+    nameField.append(nameLabel, nameInput);
 
     const valueField = document.createElement('div');
     valueField.className = 'field';
     const valueLabel = document.createElement('label');
     valueLabel.textContent = 'Passphrase';
+    valueLabel.htmlFor = 'vault-passphrase-value-' + rowId;
     const valueInput = document.createElement('input');
     valueInput.type = 'password';
+    valueInput.id = 'vault-passphrase-value-' + rowId;
     valueInput.className = 'vault-passphrase-value';
     valueInput.autocomplete = 'off';
-    valueLabel.append(valueInput);
-    valueField.append(valueLabel);
+    valueField.append(valueLabel, valueInput);
 
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
@@ -5743,6 +5832,66 @@ class UIController {
   clearVaultSavePassphraseRows() {
     this.$('vault-save-passphrase-list').replaceChildren();
     this.addVaultPassphraseRow();
+  }
+
+  addVaultWebauthnRow() {
+    const list = this.$('vault-save-webauthn-list');
+    const rowId = ++this.vaultRowIdCounter;
+    const row = document.createElement('div');
+    row.className = 'vault-passphrase-row';
+
+    const nameField = document.createElement('div');
+    nameField.className = 'field';
+    const nameLabel = document.createElement('label');
+    nameLabel.textContent = 'Name (optional)';
+    nameLabel.htmlFor = 'vault-webauthn-name-' + rowId;
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.id = 'vault-webauthn-name-' + rowId;
+    nameInput.className = 'vault-webauthn-name';
+    nameInput.placeholder = 'e.g. Dana’s YubiKey';
+    nameField.append(nameLabel, nameInput);
+
+    const status = document.createElement('span');
+    status.className = 'inline-hint vault-webauthn-status';
+    status.textContent = 'Not yet registered — you’ll be asked to touch it when you save.';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn small danger';
+    removeBtn.textContent = 'Remove';
+    removeBtn.setAttribute('aria-label', 'Remove this security key');
+    removeBtn.addEventListener('click', () => row.remove());
+
+    row.append(nameField, status, removeBtn);
+    list.append(row);
+  }
+
+  // Reads every security-key row, registering (a touch prompt) any that
+  // haven't been registered yet, one at a time — an already-registered row
+  // (dataset.credentialId set from an earlier save this session) is reused
+  // without prompting again. statusEl is updated to show progress across
+  // rows, since registering several keys means several separate touches.
+  async collectVaultSaveSecurityKeys(statusEl) {
+    const rows = Array.from(this.$('vault-save-webauthn-list').querySelectorAll('.vault-passphrase-row'));
+    const keys = [];
+    for (let i = 0; i < rows.length; i++) {
+      const nameInput = rows[i].querySelector('.vault-webauthn-name');
+      const rowStatus = rows[i].querySelector('.vault-webauthn-status');
+      const label = nameInput.value.trim() || ('Security key ' + (i + 1));
+      if (!rows[i].dataset.credentialId) {
+        statusEl.textContent = 'Touch security key ' + (i + 1) + ' of ' + rows.length + ' (' + label + ')…';
+        const credentialId = await WebAuthnCrypto.registerKey(label);
+        rows[i].dataset.credentialId = TransferCrypto.bytesToBase64(credentialId);
+        rowStatus.textContent = 'Registered.';
+      }
+      keys.push({ label, credentialId: TransferCrypto.base64ToBytes(rows[i].dataset.credentialId) });
+    }
+    return keys;
+  }
+
+  clearVaultSaveWebauthnRows() {
+    this.$('vault-save-webauthn-list').replaceChildren();
   }
 
   addToVault(entry) {
@@ -5831,7 +5980,6 @@ class UIController {
 
   async handleSaveVaultFile() {
     const status = this.$('vault-save-status');
-    const webauthnToggle = this.$('vault-save-webauthn-toggle');
 
     if (this.vaultEntries.length === 0) {
       status.textContent = 'The vault is empty — nothing to save.';
@@ -5839,8 +5987,9 @@ class UIController {
     }
     const passphrases = this.collectVaultSavePassphrases();
     if (passphrases === null) return; // an error is already shown
-    if (passphrases.length === 0 && !webauthnToggle.checked) {
-      status.textContent = 'Add at least one passphrase or protect with a security key.';
+    const hasWebauthnRows = this.$('vault-save-webauthn-list').querySelector('.vault-passphrase-row') !== null;
+    if (passphrases.length === 0 && !hasWebauthnRows) {
+      status.textContent = 'Add at least one passphrase or security key.';
       return;
     }
     if (!TransferCrypto.isAvailable()) {
@@ -5848,25 +5997,13 @@ class UIController {
       return;
     }
 
-    const protections = { passphrases };
-
     try {
-      if (webauthnToggle.checked) {
-        if (!this.webauthnCredentialId) {
-          status.textContent = 'Registering your security key — touch it now…';
-          this.webauthnCredentialId = await WebAuthnCrypto.registerKey('vault-key');
-        }
-        status.textContent = 'Touch your security key again to encrypt the vault…';
-        protections.credentialId = this.webauthnCredentialId;
-      } else {
-        status.textContent = 'Encrypting…';
-      }
-
-      const blob = await VaultManager.serializeEnvelope(this.vaultEntries, protections);
+      const securityKeys = hasWebauthnRows ? await this.collectVaultSaveSecurityKeys(status) : [];
+      status.textContent = 'Encrypting…';
+      const blob = await VaultManager.serializeEnvelope(this.vaultEntries, { passphrases, securityKeys });
       ExportManager.download('password-vault.txt', blob, 'text/plain');
 
-      const methods = passphrases.map(p => '"' + p.label + '"');
-      if (protections.credentialId) methods.push('this same physical security key');
+      const methods = passphrases.map(p => '"' + p.label + '"').concat(securityKeys.map(k => '"' + k.label + '"'));
       status.textContent = 'Vault file downloaded (' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + '). Opening it later needs any of: ' + methods.join(', ') + '.';
     } catch (e) {
       status.textContent = e.message || 'Could not save the vault file.';
@@ -5911,11 +6048,12 @@ class UIController {
     try {
       const text = await file.text();
       const envelope = VaultManager.parseEnvelope(text);
-      const entries = envelope
+      const result = envelope
         ? await VaultManager.deserializeEnvelopeWithPassphrase(envelope, passphrase)
-        : await VaultManager.deserialize(text, passphrase);
-      this.applyOpenedVaultEntries(entries);
-      status.textContent = 'Vault opened: ' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + ' loaded.';
+        : { entries: await VaultManager.deserialize(text, passphrase), label: '' };
+      this.applyOpenedVaultEntries(result.entries);
+      const whoseText = result.label ? ' using "' + result.label + '"' : '';
+      status.textContent = 'Vault opened' + whoseText + ': ' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + ' loaded.';
     } catch (e) {
       status.textContent = e.message || 'Could not open this vault file.';
     } finally {
@@ -5940,11 +6078,12 @@ class UIController {
     try {
       const text = await file.text();
       const envelope = VaultManager.parseEnvelope(text);
-      const entries = envelope
+      const result = envelope
         ? await VaultManager.deserializeEnvelopeWithSecurityKey(envelope)
-        : await VaultManager.deserializeWithSecurityKey(text);
-      this.applyOpenedVaultEntries(entries);
-      status.textContent = 'Vault opened: ' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + ' loaded.';
+        : { entries: await VaultManager.deserializeWithSecurityKey(text), label: '' };
+      this.applyOpenedVaultEntries(result.entries);
+      const whoseText = result.label ? ' using "' + result.label + '"' : '';
+      status.textContent = 'Vault opened' + whoseText + ': ' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + ' loaded.';
     } catch (e) {
       status.textContent = e.message || 'Could not open this vault file with a security key.';
     } finally {
@@ -6445,7 +6584,8 @@ class SelfTestRunner {
         const envelope = VaultManager.parseEnvelope(blob);
         if (!envelope || envelope.wraps.length !== 1) throw new Error('Expected exactly one wrap entry for a passphrase-only save.');
         const recovered = await VaultManager.deserializeEnvelopeWithPassphrase(envelope, 'envelope-passphrase');
-        if (recovered.length !== 1 || recovered[0].value !== entries[0].value) throw new Error('Entry did not round-trip through the envelope.');
+        if (recovered.entries.length !== 1 || recovered.entries[0].value !== entries[0].value) throw new Error('Entry did not round-trip through the envelope.');
+        if (recovered.label !== 'Only') throw new Error('Expected the matched wrap\'s label to be reported, got "' + recovered.label + '"');
         return 'ok';
       });
 
@@ -6475,10 +6615,12 @@ class SelfTestRunner {
         if (envelope.wraps.length !== 2) throw new Error('Expected two wrap entries for two passphrases, got ' + envelope.wraps.length);
 
         const viaAlice = await VaultManager.deserializeEnvelopeWithPassphrase(envelope, 'alice-passphrase');
-        if (viaAlice[0].value !== entries[0].value) throw new Error('Alice\'s passphrase did not recover the entry.');
+        if (viaAlice.entries[0].value !== entries[0].value) throw new Error('Alice\'s passphrase did not recover the entry.');
+        if (viaAlice.label !== 'Alice') throw new Error('Expected label "Alice", got "' + viaAlice.label + '"');
 
         const viaBob = await VaultManager.deserializeEnvelopeWithPassphrase(envelope, 'bob-passphrase');
-        if (viaBob[0].value !== entries[0].value) throw new Error('Bob\'s passphrase did not recover the entry.');
+        if (viaBob.entries[0].value !== entries[0].value) throw new Error('Bob\'s passphrase did not recover the entry.');
+        if (viaBob.label !== 'Bob') throw new Error('Expected label "Bob", got "' + viaBob.label + '"');
 
         let threwOnNeither = false;
         try {
@@ -6511,7 +6653,7 @@ class SelfTestRunner {
         const envelope = { type: VaultManager.ENVELOPE_FILE_TYPE, exportedAt: new Date().toISOString(), dataIv, ciphertext, wraps: [wrap1, wrap2] };
 
         const viaPassphrase = await VaultManager.deserializeEnvelopeWithPassphrase(envelope, 'dual-test-passphrase');
-        if (viaPassphrase[0].value !== entries[0].value) throw new Error('Passphrase-side unlock did not recover the original entry.');
+        if (viaPassphrase.entries[0].value !== entries[0].value) throw new Error('Passphrase-side unlock did not recover the original entry.');
 
         const kekDecrypt = await window.crypto.subtle.importKey('raw', syntheticSecret, 'AES-GCM', false, ['decrypt']);
         const recoveredDek = await VaultManager.unwrapDekWithKey(wrap2, kekDecrypt);
@@ -6521,6 +6663,56 @@ class SelfTestRunner {
         if (viaKey[0].value !== entries[0].value) throw new Error('Security-key-side unlock did not recover the original entry.');
 
         return 'ok (both wraps independently recover the same data)';
+      });
+
+      await add('Vault envelope supports multiple independent security keys', async () => {
+        // Simulates two physical security keys via synthetic secrets, since
+        // this page cannot exercise real WebAuthn hardware. This verifies
+        // the app-level disambiguation logic in
+        // deserializeEnvelopeWithSecurityKey — matching whichever credential
+        // responds back to its own wrap — without depending on
+        // derivePrfSecretForCredentials' real evalByCredential wire
+        // behavior, which needs real hardware to verify.
+        const entries = [{ label: 'MultiKey', value: 'multi-key-pw-1', mode: 'random', createdAt: new Date().toISOString() }];
+        const dek = window.crypto.getRandomValues(new Uint8Array(VaultManager.DEK_BYTES));
+        const { dataIv, ciphertext } = await VaultManager.encryptDataWithDek(dek, VaultManager.buildPayload(entries));
+
+        const credA = new Uint8Array([1, 1, 1, 1]);
+        const credB = new Uint8Array([2, 2, 2, 2]);
+        const secretA = window.crypto.getRandomValues(new Uint8Array(32));
+        const secretB = window.crypto.getRandomValues(new Uint8Array(32));
+
+        const saltA = window.crypto.getRandomValues(new Uint8Array(WebAuthnCrypto.SALT_BYTES));
+        const kekA = await window.crypto.subtle.importKey('raw', secretA, 'AES-GCM', false, ['encrypt']);
+        const wrapA = Object.assign({ method: 'webauthn', label: 'Key A', credentialId: TransferCrypto.bytesToBase64(credA), salt: TransferCrypto.bytesToBase64(saltA) }, await VaultManager.wrapDekWithKey(dek, kekA));
+
+        const saltB = window.crypto.getRandomValues(new Uint8Array(WebAuthnCrypto.SALT_BYTES));
+        const kekB = await window.crypto.subtle.importKey('raw', secretB, 'AES-GCM', false, ['encrypt']);
+        const wrapB = Object.assign({ method: 'webauthn', label: 'Key B', credentialId: TransferCrypto.bytesToBase64(credB), salt: TransferCrypto.bytesToBase64(saltB) }, await VaultManager.wrapDekWithKey(dek, kekB));
+
+        dek.fill(0);
+        const envelope = { type: VaultManager.ENVELOPE_FILE_TYPE, exportedAt: new Date().toISOString(), dataIv, ciphertext, wraps: [wrapA, wrapB] };
+
+        const original = WebAuthnCrypto.derivePrfSecretForCredentials;
+        let result;
+        try {
+          WebAuthnCrypto.derivePrfSecretForCredentials = async () => ({ secret: secretB, credentialId: credB });
+          result = await VaultManager.deserializeEnvelopeWithSecurityKey(envelope);
+        } finally {
+          WebAuthnCrypto.derivePrfSecretForCredentials = original;
+        }
+        if (result.entries[0].value !== entries[0].value) throw new Error('Multi-key unlock did not recover the original entry.');
+        if (result.label !== 'Key B') throw new Error('Expected the responding credential\'s own wrap ("Key B") to be selected, got "' + result.label + '"');
+        return 'ok (disambiguates and recovers using the responding key\'s own wrap)';
+      });
+
+      await add('Base64url encoding for WebAuthn evalByCredential keys is correct', () => {
+        const bytes = new Uint8Array([251, 255, 254, 0, 16, 131]);
+        const url = WebAuthnCrypto.bytesToBase64Url(bytes);
+        if (url.includes('+') || url.includes('/') || url.includes('=')) {
+          throw new Error('base64url output should never contain +, /, or = — got "' + url + '"');
+        }
+        return 'ok (' + url + ')';
       });
 
       await add('Vault envelope gives a clear error when the requested method has no matching wrap', async () => {
