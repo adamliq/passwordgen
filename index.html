@@ -701,6 +701,14 @@
   <!-- RESULTS -->
   <section class="card" id="results-section">
     <h2>Results</h2>
+    <div class="checkbox-row">
+      <input type="checkbox" id="results-idle-lock-toggle">
+      <label class="ck-text" for="results-idle-lock-toggle">Auto-clear results after inactivity <span class="desc">clears generated passwords from this page if it sits idle for the chosen number of minutes, even while the tab stays open and visible</span></label>
+    </div>
+    <div class="field" id="results-idle-lock-minutes-field" hidden>
+      <label for="results-idle-lock-minutes">Idle clear delay (minutes)</label>
+      <input type="number" id="results-idle-lock-minutes" min="1" max="120" value="5">
+    </div>
     <p class="subtle" id="results-empty">No passwords generated yet. Adjust your settings and press Generate.</p>
     <div class="btn-row" id="results-toolbar" hidden>
       <button type="button" class="btn" id="copy-all-btn">Copy all</button>
@@ -3802,7 +3810,8 @@ class UIController {
     this.clipboardAutoClear = { enabled: false, seconds: 30 };
     this.clipboardClearTracker = new ClipboardAutoClearTracker();
     this.vaultIdleLock = { enabled: false, minutes: 5 };
-    this.lastVaultActivityAt = Date.now();
+    this.resultsIdleLock = { enabled: false, minutes: 5 };
+    this.lastPageActivityAt = Date.now();
   }
 
   init() {
@@ -3832,6 +3841,8 @@ class UIController {
     this.bindPhoneticDialog();
     this.bindClipboardAutoClear();
     this.bindVaultIdleLock();
+    this.bindResultsIdleLock();
+    this.bindIdleActivityTracking();
     this.bindLifecycleClearing();
     this.bindBeforeUnloadWarning();
   }
@@ -5197,7 +5208,7 @@ class UIController {
     const update = () => {
       this.vaultIdleLock.enabled = toggle.checked;
       minutesField.hidden = !toggle.checked;
-      this.lastVaultActivityAt = Date.now();
+      this.lastPageActivityAt = Date.now();
     };
     toggle.addEventListener('change', update);
     minutesInput.addEventListener('input', () => {
@@ -5205,18 +5216,6 @@ class UIController {
       if (!Number.isNaN(v) && v >= 1 && v <= 120) this.vaultIdleLock.minutes = v;
     });
     update();
-
-    const markActivity = () => { this.lastVaultActivityAt = Date.now(); };
-    for (const evt of ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']) {
-      document.addEventListener(evt, markActivity, { passive: true });
-    }
-
-    window.setInterval(() => {
-      if (!this.vaultIdleLock.enabled || this.vaultEntries.length === 0) return;
-      if (IdleLockChecker.isIdle(this.lastVaultActivityAt, this.vaultIdleLock.minutes, Date.now())) {
-        this.lockVaultDueToInactivity();
-      }
-    }, 5000);
   }
 
   lockVaultDueToInactivity() {
@@ -5227,6 +5226,51 @@ class UIController {
     const message = 'Vault cleared automatically after ' + minutes + ' minute' + (minutes === 1 ? '' : 's') + ' of inactivity.';
     this.$('vault-open-status').textContent = message;
     this.announce(message);
+  }
+
+  bindResultsIdleLock() {
+    const toggle = this.$('results-idle-lock-toggle');
+    const minutesField = this.$('results-idle-lock-minutes-field');
+    const minutesInput = this.$('results-idle-lock-minutes');
+    const update = () => {
+      this.resultsIdleLock.enabled = toggle.checked;
+      minutesField.hidden = !toggle.checked;
+      this.lastPageActivityAt = Date.now();
+    };
+    toggle.addEventListener('change', update);
+    minutesInput.addEventListener('input', () => {
+      const v = parseInt(minutesInput.value, 10);
+      if (!Number.isNaN(v) && v >= 1 && v <= 120) this.resultsIdleLock.minutes = v;
+    });
+    update();
+  }
+
+  lockResultsDueToInactivity() {
+    for (const r of this.results) r.value = '';
+    this.results = [];
+    this.renderResults();
+    const minutes = this.resultsIdleLock.minutes;
+    const message = 'Results cleared automatically after ' + minutes + ' minute' + (minutes === 1 ? '' : 's') + ' of inactivity.';
+    this.announce(message);
+  }
+
+  bindIdleActivityTracking() {
+    const markActivity = () => { this.lastPageActivityAt = Date.now(); };
+    for (const evt of ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']) {
+      document.addEventListener(evt, markActivity, { passive: true });
+    }
+
+    window.setInterval(() => {
+      const now = Date.now();
+      if (this.vaultIdleLock.enabled && this.vaultEntries.length > 0 &&
+          IdleLockChecker.isIdle(this.lastPageActivityAt, this.vaultIdleLock.minutes, now)) {
+        this.lockVaultDueToInactivity();
+      }
+      if (this.resultsIdleLock.enabled && this.results.length > 0 &&
+          IdleLockChecker.isIdle(this.lastPageActivityAt, this.resultsIdleLock.minutes, now)) {
+        this.lockResultsDueToInactivity();
+      }
+    }, 5000);
   }
 
   bindVault() {
