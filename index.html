@@ -105,7 +105,7 @@
   button, input, select, textarea { font-family: inherit; font-size: 1rem; color: inherit; }
 
   /* The [hidden] attribute must win over any component class (.field, .btn-row,
-     .section-nav-menu, etc.) that sets its own `display` — otherwise the class's
+     .result-more-menu, etc.) that sets its own `display` — otherwise the class's
      author-stylesheet rule overrides the browser's default `[hidden]{display:none}`
      UA rule even though it's the same specificity, and the element stays visible. */
   [hidden] { display: none !important; }
@@ -140,29 +140,22 @@
     position: sticky; top: 0; z-index: 10;
     background: var(--bg-elevated); border-bottom: 1px solid var(--border);
   }
-  .section-nav-inner { max-width: 880px; margin: 0 auto; padding: 8px 16px; position: relative; }
-  .section-nav-toggle {
+  .section-nav-inner {
+    max-width: 880px; margin: 0 auto; padding: 8px 16px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .section-nav-label {
     display: inline-flex; align-items: center; gap: 8px;
+    color: var(--text); font-weight: 600; min-height: 40px; flex: none;
+  }
+  .section-nav-select {
     border: 1px solid var(--border); background: var(--bg-inset); color: var(--text);
-    border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; min-height: 40px;
+    border-radius: 8px; padding: 8px 12px; cursor: pointer; min-height: 40px;
+    flex: 1 1 200px; min-width: 0;
   }
-  .section-nav-toggle:hover { border-color: var(--accent); }
-  .section-nav-toggle[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
-  .section-nav-menu {
-    display: flex; flex-wrap: wrap; gap: 8px;
-    margin-top: 8px; padding: 12px; background: var(--bg-elevated);
-    border: 1px solid var(--border); border-radius: var(--radius);
-    position: absolute; top: 100%; left: 16px; right: 16px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.12); max-height: 70vh; overflow-y: auto;
-  }
-  .section-nav-menu a {
-    text-decoration: none; color: var(--text); background: var(--bg-inset);
-    border: 1px solid var(--border); border-radius: 999px; padding: 8px 14px; font-size: 0.9rem;
-    min-height: 36px; display: inline-flex; align-items: center;
-  }
-  .section-nav-menu a:hover, .section-nav-menu a:focus-visible { border-color: var(--accent); color: var(--accent); }
+  .section-nav-select:hover { border-color: var(--accent); }
 
-  /* scroll targets for the section-nav menu should land clear of the sticky bar */
+  /* scroll targets for the section-nav dropdown should land clear of the sticky bar */
   section.card, #generation-tabs, details.advanced { scroll-margin-top: 66px; }
 
   section.card {
@@ -228,15 +221,7 @@
   details.advanced > summary::before { content: "▸"; transition: transform 0.15s; }
   details.advanced[open] > summary::before { transform: rotate(90deg); }
   details.advanced .advanced-body { padding: 16px; }
-
-  .preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
-  .preset-btn {
-    text-align: left; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 12px; cursor: pointer; min-height: 44px;
-  }
-  .preset-btn strong { display: block; font-size: 0.95rem; }
-  .preset-btn span { display: block; color: var(--text-muted); font-size: 0.82rem; margin-top: 2px; }
-  .preset-btn:hover { border-color: var(--accent); }
+  details.advanced > summary .summary-status { font-weight: 400; color: var(--text-muted); font-size: 0.85rem; }
 
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -270,6 +255,20 @@
     width: 56px; padding: 6px 6px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--bg-inset); color: var(--text); min-height: 36px; font-size: 0.85rem;
   }
+
+  .result-more { position: relative; }
+  .result-more-menu {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; min-width: 190px;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.18); padding: 6px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .result-more-item {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    padding: 9px 10px; border-radius: 7px; font-size: 0.88rem; font-weight: 600;
+    color: var(--text); cursor: pointer; min-height: 36px;
+  }
+  .result-more-item:hover, .result-more-item:focus-visible { background: var(--bg-inset); }
 
   .strength-weak { background: var(--danger-soft); color: var(--danger); }
   .strength-moderate { background: var(--warn-soft); color: var(--warn); }
@@ -403,27 +402,28 @@
 
 <div class="section-nav" id="section-nav">
   <div class="section-nav-inner">
-    <button type="button" class="section-nav-toggle" id="section-nav-toggle" aria-expanded="false" aria-controls="section-nav-menu">
+    <label class="section-nav-label" for="section-nav-select">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
       Jump to section
-    </button>
-    <div class="section-nav-menu" id="section-nav-menu" hidden>
-      <a href="#generation-tabs" data-nav-target="generation-tabs">Password settings</a>
-      <a href="#presets-section" data-nav-target="presets-section">Presets</a>
-      <a href="#generate-section" data-nav-target="generate-section">Generate</a>
-      <a href="#results-section" data-nav-target="results-section">Results</a>
-      <a href="#wifi-qr-section" data-nav-target="wifi-qr-section">Wi-Fi QR code</a>
-      <a href="#history-section" data-nav-target="history-section">Session history</a>
-      <a href="#export-section" data-nav-target="export-section">Export batch</a>
-      <a href="#decrypt-section" data-nav-target="decrypt-section">Decrypt</a>
-      <a href="#check-strength-section" data-nav-target="check-strength-section">Check a password</a>
-      <a href="#vault-section" data-nav-target="vault-section">Key vault</a>
-      <a href="#guidance-section" data-nav-target="guidance-section">Security guidance</a>
-      <a href="#technical-info-section" data-nav-target="technical-info-section">Technical info</a>
-      <a href="#self-test-section" data-nav-target="self-test-section">Self-tests</a>
-    </div>
+    </label>
+    <select class="section-nav-select" id="section-nav-select" aria-label="Jump to section">
+      <option value="">Choose a section…</option>
+      <option value="generation-tabs">Password settings</option>
+      <option value="presets-section">Presets</option>
+      <option value="generate-section">Generate</option>
+      <option value="results-section">Results</option>
+      <option value="wifi-qr-section">Wi-Fi QR code</option>
+      <option value="history-section">Session history</option>
+      <option value="export-section">Export batch</option>
+      <option value="decrypt-section">Decrypt</option>
+      <option value="check-strength-section">Check a password</option>
+      <option value="vault-section">Key vault</option>
+      <option value="guidance-section">Security guidance</option>
+      <option value="technical-info-section">Technical info</option>
+      <option value="self-test-section">Self-tests</option>
+    </select>
   </div>
 </div>
 
@@ -684,7 +684,11 @@
   <section class="card" id="presets-section">
     <h2>Presets</h2>
     <p class="subtle">Apply a starting configuration, then fine-tune with the settings above.</p>
-    <div class="preset-grid" id="preset-grid"></div>
+    <div class="field">
+      <label for="preset-select">Choose a preset</label>
+      <select id="preset-select"></select>
+    </div>
+    <p class="subtle" id="preset-select-desc">Select a preset above to see what it changes.</p>
 
     <fieldset>
       <legend>Custom presets</legend>
@@ -1015,9 +1019,10 @@
   </details>
 
   <!-- KEY VAULT -->
-  <section class="card" id="vault-section">
-    <h2>Key vault</h2>
-    <p class="subtle">Save passwords here using each result's "Save to vault" button, then download the vault as one encrypted file to keep or carry to another device. The vault lives only in this tab's memory and in whatever file you explicitly download &mdash; nothing here is ever written to this browser's storage automatically, and like the rest of this page, it's cleared if you switch away from or close this tab. Download it before you navigate away.</p>
+  <details class="advanced" id="vault-section">
+    <summary>Key vault <span class="summary-status" id="vault-summary-status">&mdash; empty</span></summary>
+    <div class="advanced-body">
+    <p class="subtle">Save passwords here using each result's "Save to vault" menu item, then download the vault as one encrypted file to keep or carry to another device. The vault lives only in this tab's memory and in whatever file you explicitly download &mdash; nothing here is ever written to this browser's storage automatically, and like the rest of this page, it's cleared if you switch away from or close this tab. Download it before you navigate away.</p>
     <div class="alert warn">Whoever has the vault file <em>and</em> a way to unlock it (any one of its passphrases, security keys, or keyfiles) can read everything in it. Pick strong, memorable passphrases (a generated passphrase from this tool works well), and if you use a keyfile, pick one that isn't shared, downloadable, or guessable by anyone else &mdash; keep all of them separate from the vault file itself. If a vault is protected with only one way in and it's lost &mdash; a forgotten passphrase, a lost security key, or a missing keyfile &mdash; there is no way to recover it. Adding more than one gives everyone their own independent way in, and a second way in if one is lost. Removing someone's access later means saving a fresh copy of the vault with a new set of passphrases/keys/keyfiles and sharing that instead &mdash; the old file still works for anyone who kept it.</div>
 
     <div class="checkbox-row">
@@ -1029,7 +1034,7 @@
       <input type="number" id="vault-idle-lock-minutes" min="1" max="120" value="5">
     </div>
 
-    <p class="subtle" id="vault-empty">The vault is empty. Generate a password above and use its "Save to vault" button.</p>
+    <p class="subtle" id="vault-empty">The vault is empty. Generate a password above and use its "Save to vault" menu item.</p>
     <div id="vault-list"></div>
     <div class="btn-row" id="vault-toolbar" hidden>
       <button type="button" class="btn danger" id="vault-clear-btn">Clear vault</button>
@@ -1080,7 +1085,8 @@
       </div>
       <p class="inline-hint" id="vault-open-status" aria-live="polite"></p>
     </fieldset>
-  </section>
+    </div>
+  </details>
 
   <!-- SECURITY GUIDANCE -->
   <details class="advanced" id="guidance-section">
@@ -4604,41 +4610,17 @@ class UIController {
   }
 
   bindSectionNav() {
-    const toggle = this.$('section-nav-toggle');
-    const menu = this.$('section-nav-menu');
-
-    const closeMenu = () => {
-      menu.hidden = true;
-      toggle.setAttribute('aria-expanded', 'false');
-    };
-
-    toggle.addEventListener('click', () => {
-      const willOpen = menu.hidden;
-      menu.hidden = !willOpen;
-      toggle.setAttribute('aria-expanded', String(willOpen));
-    });
-
-    menu.addEventListener('click', (e) => {
-      const link = e.target.closest('a[data-nav-target]');
-      if (!link) return;
-      e.preventDefault();
-      const target = this.$(link.dataset.navTarget);
+    const select = this.$('section-nav-select');
+    select.addEventListener('change', () => {
+      const targetId = select.value;
+      select.value = '';
+      if (!targetId) return;
+      const target = this.$(targetId);
       if (target) {
         if (target.tagName === 'DETAILS') target.open = true;
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
-      closeMenu();
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!menu.hidden && !e.target.closest('.section-nav')) closeMenu();
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !menu.hidden) {
-        closeMenu();
-        toggle.focus();
-      }
+      select.blur();
     });
   }
 
@@ -4658,7 +4640,11 @@ class UIController {
 
       if (e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        this.$('section-nav-toggle').click();
+        const select = this.$('section-nav-select');
+        select.focus();
+        if (typeof select.showPicker === 'function') {
+          try { select.showPicker(); } catch (_) { /* unsupported in this browser; focus is enough */ }
+        }
         return;
       }
 
@@ -4821,20 +4807,31 @@ class UIController {
   /* ---------------- Presets ---------------- */
 
   renderPresets() {
-    const grid = this.$('preset-grid');
-    grid.replaceChildren();
+    const select = this.$('preset-select');
+    const desc = this.$('preset-select-desc');
+    select.replaceChildren();
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Choose a preset…';
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    select.append(placeholder);
+
     for (const [key, preset] of Object.entries(BUILTIN_PRESETS)) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'preset-btn';
-      const strong = document.createElement('strong');
-      strong.textContent = preset.label;
-      const span = document.createElement('span');
-      span.textContent = preset.desc;
-      btn.append(strong, span);
-      btn.addEventListener('click', () => this.applyPreset(preset));
-      grid.append(btn);
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = preset.label;
+      select.append(opt);
     }
+
+    select.addEventListener('change', () => {
+      const preset = BUILTIN_PRESETS[select.value];
+      if (!preset) return;
+      this.applyPreset(preset);
+      desc.textContent = preset.label + ': ' + preset.desc + '.';
+    });
+
     this.refreshCustomPresetSelect();
   }
 
@@ -5274,51 +5271,6 @@ class UIController {
       this.regenerateEntry(entry.id, override);
     });
 
-    const detailBtn = document.createElement('button');
-    detailBtn.type = 'button';
-    detailBtn.className = 'btn small';
-    detailBtn.textContent = 'Details';
-    detailBtn.addEventListener('click', () => {
-      this.selectedResultId = entry.id;
-      this.renderStrengthDetail(entry);
-      this.$('strength-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-
-    const qrBtn = document.createElement('button');
-    qrBtn.type = 'button';
-    qrBtn.className = 'btn small';
-    qrBtn.textContent = 'QR code';
-    qrBtn.setAttribute('aria-label', 'Show password ' + (index + 1) + ' as a QR code, to scan on another device');
-    qrBtn.addEventListener('click', () => this.showQrCode(entry.value));
-
-    const vaultBtn = document.createElement('button');
-    vaultBtn.type = 'button';
-    vaultBtn.className = 'btn small';
-    vaultBtn.textContent = 'Save to vault';
-    vaultBtn.setAttribute('aria-label', 'Save password ' + (index + 1) + ' to the key vault');
-    vaultBtn.addEventListener('click', () => this.addToVault(entry));
-
-    const phoneticBtn = document.createElement('button');
-    phoneticBtn.type = 'button';
-    phoneticBtn.className = 'btn small';
-    phoneticBtn.textContent = 'Spell it out';
-    phoneticBtn.setAttribute('aria-label', 'Show password ' + (index + 1) + ' as a phonetic spelling, to read aloud over a call');
-    phoneticBtn.addEventListener('click', () => this.showPhoneticSpelling(entry.value));
-
-    const largePrintBtn = document.createElement('button');
-    largePrintBtn.type = 'button';
-    largePrintBtn.className = 'btn small';
-    largePrintBtn.textContent = 'Large print';
-    largePrintBtn.setAttribute('aria-label', 'Show password ' + (index + 1) + ' full-screen in large print, for typing by eye between two devices');
-    largePrintBtn.addEventListener('click', () => this.showLargePrint(entry.value));
-
-    const printSlipBtn = document.createElement('button');
-    printSlipBtn.type = 'button';
-    printSlipBtn.className = 'btn small';
-    printSlipBtn.textContent = 'Print slip';
-    printSlipBtn.setAttribute('aria-label', 'Print password ' + (index + 1) + ' alone on a page, for setting up an offline device');
-    printSlipBtn.addEventListener('click', () => this.printSlip(entry.value));
-
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.className = 'btn small danger';
@@ -5330,9 +5282,71 @@ class UIController {
       this.renderResults();
     });
 
-    actions.append(showHideBtn, copyBtn, regenOverride, regenBtn, qrBtn, vaultBtn, phoneticBtn, largePrintBtn, printSlipBtn, detailBtn, removeBtn);
+    // Less-frequently-used actions live behind a "More" menu instead of
+    // competing for space with Hide/Copy/Regenerate/Remove in every row.
+    const moreWrap = document.createElement('div');
+    moreWrap.className = 'result-more';
+
+    const moreBtn = document.createElement('button');
+    moreBtn.type = 'button';
+    moreBtn.className = 'btn small';
+    moreBtn.textContent = '⋯ More';
+    moreBtn.setAttribute('aria-haspopup', 'true');
+    moreBtn.setAttribute('aria-expanded', 'false');
+    moreBtn.setAttribute('aria-label', 'More actions for password ' + (index + 1));
+
+    const moreMenu = document.createElement('div');
+    moreMenu.className = 'result-more-menu';
+    moreMenu.setAttribute('role', 'menu');
+    moreMenu.hidden = true;
+
+    const addMoreItem = (label, ariaLabel, onActivate, extraClass) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'result-more-item' + (extraClass ? ' ' + extraClass : '');
+      item.setAttribute('role', 'menuitem');
+      item.textContent = label;
+      if (ariaLabel) item.setAttribute('aria-label', ariaLabel);
+      item.addEventListener('click', () => {
+        moreMenu.hidden = true;
+        moreBtn.setAttribute('aria-expanded', 'false');
+        onActivate();
+      });
+      moreMenu.append(item);
+    };
+
+    addMoreItem('QR code', 'Show password ' + (index + 1) + ' as a QR code, to scan on another device', () => this.showQrCode(entry.value));
+    addMoreItem('Save to vault', 'Save password ' + (index + 1) + ' to the key vault', () => this.addToVault(entry));
+    addMoreItem('Spell it out', 'Show password ' + (index + 1) + ' as a phonetic spelling, to read aloud over a call', () => this.showPhoneticSpelling(entry.value));
+    addMoreItem('Large print', 'Show password ' + (index + 1) + ' full-screen in large print, for typing by eye between two devices', () => this.showLargePrint(entry.value));
+    addMoreItem('Print slip', 'Print password ' + (index + 1) + ' alone on a page, for setting up an offline device', () => this.printSlip(entry.value));
+    addMoreItem('Details', null, () => {
+      this.selectedResultId = entry.id;
+      this.renderStrengthDetail(entry);
+      this.$('strength-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+
+    moreBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willOpen = moreMenu.hidden;
+      this.closeAllResultMoreMenus();
+      moreMenu.hidden = !willOpen;
+      moreBtn.setAttribute('aria-expanded', String(willOpen));
+    });
+
+    moreWrap.append(moreBtn, moreMenu);
+
+    actions.append(showHideBtn, copyBtn, regenOverride, regenBtn, removeBtn, moreWrap);
     row.append(idxEl, valueEl, badge, actions);
     return row;
+  }
+
+  closeAllResultMoreMenus() {
+    document.querySelectorAll('.result-more-menu:not([hidden])').forEach((menu) => {
+      menu.hidden = true;
+      const btn = menu.previousElementSibling;
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
   }
 
   flashCopyFeedback(button, ok) {
@@ -5361,6 +5375,13 @@ class UIController {
       this.results = [];
       this.renderResults();
       this.announce('All results cleared.');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.result-more')) this.closeAllResultMoreMenus();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.closeAllResultMoreMenus();
     });
   }
 
@@ -6067,15 +6088,18 @@ class UIController {
     const list = this.$('vault-list');
     const empty = this.$('vault-empty');
     const toolbar = this.$('vault-toolbar');
+    const summaryStatus = this.$('vault-summary-status');
     list.replaceChildren();
 
     if (this.vaultEntries.length === 0) {
       empty.hidden = false;
       toolbar.hidden = true;
+      summaryStatus.textContent = '— empty';
       return;
     }
     empty.hidden = true;
     toolbar.hidden = false;
+    summaryStatus.textContent = '— ' + this.vaultEntries.length + ' entr' + (this.vaultEntries.length === 1 ? 'y' : 'ies') + ' saved';
 
     for (const entry of this.vaultEntries) list.append(this.buildVaultRow(entry));
   }

@@ -91,7 +91,9 @@ async function main() {
   check('batch size 10 produces 10 result rows', rowCount === 10, 'got ' + rowCount);
   await page.fill('#batch-size', '1');
 
-  // 6. QR code button renders an SVG for a generated password.
+  // 6. QR code action (behind the "More" menu) renders an SVG for a generated password.
+  await page.click('#results-list .result-row:first-child button:has-text("⋯ More")');
+  await page.waitForTimeout(50);
   await page.click('#results-list .result-row:first-child button:has-text("QR code")');
   await page.waitForTimeout(150);
   const hasQrSvg = await page.isVisible('#qr-code-container svg');
